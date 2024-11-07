@@ -27,10 +27,12 @@ After logging in, go to the "IAM Scenarios" section, and download datas for :
 The datas are stocked in a csv file for every IAM, every SSP-RCP scenario, every region, for each variable chosen.
 
 To use the data in the code, they have to be downloaded in a folder for each variable. The folder contains a folder for each modelisation (IAM - SSP-RCP), which is filled with 5 Excel files for each region. 
-The folder and files name is :
+The folder and files name are :
 - Capacity Factor IAM > FC models0_scenario > FCmodels0_scenario_region
 - GDP IAM > GDP models0_scenario > GDPmodels0_scenario_region
 - Power Capacity IAM > Dossier s0 models0_scenario > Cap_models0_scenario_region
+
+To do so, you can use the python code "IAM_Download_Data"
 
 ### Choose parameters 
 

@@ -7,9 +7,16 @@ The python code "IAM_metal_optimisation.py" is a software tool designed, on one 
 1. Clone the repository (or download it)
 2. Remove the contents from the 'Datas' folder, so that it is in your "folder path"
 3. Download the datas of the IAM you want to use
+4. The code is ready to be used !
 
-The datas needed to generate the results of RCP 2.6, for various SSP, modelled by each IAM markor is available on Zenodo at the following link: 
+### How to download datas of the IAM you want
+
+1. You want to study the modelisation from the article
+   
+The datas needed to generate the results of RCP 2.6, for various SSP, modeled by each IAM markor is available on Zenodo at the following link: 
         — Data: data-zenodo
+
+2. You want to study an other IAM or SSP-RCP scenario
 
 To study an other IAM and SSP-RCP modelisation, use the datas from the IIASA database : https://tntcat.iiasa.ac.at/SspDb/dsd?Action=htmlpage&page=20
 

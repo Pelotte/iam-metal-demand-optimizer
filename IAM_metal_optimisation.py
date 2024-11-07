@@ -155,9 +155,6 @@ class IAM_Metal_Optimisation :
         # Import the matrix of correspondence between Techno and Techno Init
         self.TechnoMatrix = pd.read_excel(self.folder_path + 'Techno Matrix.xlsx', index_col=0)
 
-        # Metal intensity of technologies 
-        self.MetalIntensity_doc = MetalIntensity_doc
-
     # Calculate Metal Intensity (MI) evolution in time
     def MI(self):
         '''
@@ -167,7 +164,7 @@ class IAM_Metal_Optimisation :
         '''
 
         # Import table of metal intensities for specific sub-technologies [t/GW] according to the MI scenario chosen
-        MetalIntensity = pd.read_excel(self.folder_path + 'Metal Intensity Tech.xlsx', sheet_name = 'MI base',index_col=0)
+        MetalIntensity = pd.read_excel(self.folder_path + 'Metal Intensity Tech.xlsx', sheet_name = 'MI',index_col=0)
         # Import the table of metal intensities for specific sub-technologies
         self.MetalIntensity_Agg = pd.read_excel(self.folder_path + 'Metal Intensity Tech.xlsx', sheet_name='Aggregated MI 2010',
                                            index_col=0)
@@ -178,7 +175,7 @@ class IAM_Metal_Optimisation :
         MetalIntensity_doc[self.listDecades[0]] = MetalIntensity
 
         # Tab of different scenario of metal intensity reduction
-        ReductionScenario = pd.read_excel(self.folder_path + 'Metal Intensity Tech.xlsx', sheet_name='IM reduction scenario',
+        ReductionScenario = pd.read_excel(self.folder_path + 'Metal Intensity Tech.xlsx', sheet_name='MI reduction scenario',
                                           index_col=0)
         # Load categorization of metals : bulk vs techno-specific
         MetalCategorisation = pd.read_excel(self.folder_path + 'Metal Intensity Tech.xlsx',
@@ -658,6 +655,32 @@ class IAM_Metal_Optimisation :
                     >= sum(self.s0[r].loc[T][d] * self.CF_disag[r].loc[T][d] for T in self.listTechnoFlex)
                 )
 
+    def CstrTechnoCoherence(self):
+        '''
+        Constraint model to keep the initial IAM mix for 2020,
+        and to keep the installed capacity during the previous decade
+        '''
+
+        # Creation of a list of constraint to add coherence in optimised the technological mix of 2020
+        self.model.constraintMixCoherence2020 = ConstraintList()
+
+        for r in self.listRegions:
+            for T in self.listTechnoFlex:
+                # The initial technological mix of 2020 cannot be changed
+                self.model.constraintMixCoherence2020.add(sum(self.TechnoMatrix[t].loc[T] *self.model.s[r,t,'2020'] for t in self.listTechno)
+                                                          ==self.s0[r].loc[T]['2020']
+                                                          )
+
+        # Creation of a list of constraint to add coherence in the evolution of the technological mix
+        self.model.constraintMixCoherence = ConstraintList()
+
+        for r in self.listRegions:
+            for t in self.listTechno_Ren:
+                for d in range(1, len(self.listDecades)):
+                    # If a capacity is installed in d-1, it is still in the cumulated installed capacity in d
+                    self.model.constraintMixCoherence.add(
+                        self.model.s[r, t, self.listDecades[d]] + self.model.CoherentMix_relax[r, t, self.listDecades[d]] >= self.model.s[r, t, self.listDecades[d - 1]])
+
     def CstrCappedFoss(self):
         '''
         Constrain the model to not increase fossil fuel technologies, to limit climate change
@@ -667,7 +690,7 @@ class IAM_Metal_Optimisation :
         for r in self.listRegions:
             for t in self.listTechno_Foss:
                 for d in self.listDecades:
-                    self.model.constraintCC.add(self.model.s[r, t, d] - self.s0[r].loc[t][d] <= 0)
+                    self.model.constraintCC.add(self.model.s[r, t, d] - self.s0[r].loc[t][d] == 0)
 
     def CstrMetalRes(self):
         '''
@@ -709,35 +732,11 @@ class IAM_Metal_Optimisation :
                     - self.OTDy[self.listDecades[d]].loc[m] / self.MetalDatas['RR (%) Prod'].loc[
                         m]  # Metals needed for EV, electric grid, storage, according to IEA
                     - self.OSDy[self.listDecades[d]].loc[m], self.Alpha / 100 * (
-                                self.OSDy[self.listDecades[d]].loc[m] + self.OTDy[self.listDecades[d]].loc[m]))
+                                self.OSDy[self.listDecades[d]].loc[m]/ self.MetalDatas['RR (%) Prod'].loc[
+                        m] + self.OTDy[self.listDecades[d]].loc[m]))
                                                        + self.model.Mining_relax[
                                                            m, self.listDecades[d]])  # Relaxation variable
 
-    def CstrTechnoCoherence(self):
-        '''
-        Constraint model to keep the initial IAM mix for 2020,
-        and to keep the installed capacity during the previous decade
-        '''
-
-        # Creation of a list of constraint to add coherence in optimised the technological mix of 2020
-        self.model.constraintMixCoherence2020 = ConstraintList()
-
-        for r in self.listRegions:
-            for T in self.listTechnoFlex:
-                # The initial technological mix of 2020 cannot be changed
-                self.model.constraintMixCoherence2020.add(sum(self.TechnoMatrix[t].loc[T] *self.model.s[r,t,'2020'] for t in self.listTechno)
-                                                          ==self.s0[r].loc[T]['2020']
-                                                          )
-
-        # Creation of a list of constraint to add coherence in the evolution of the technological mix
-        self.model.constraintMixCoherence = ConstraintList()
-
-        for r in self.listRegions:
-            for t in self.listTechno_Ren:
-                for d in range(1, len(self.listDecades)):
-                    # If a capacity is installed in d-1, it is still in the cumulated installed capacity in d
-                    self.model.constraintMixCoherence.add(
-                        self.model.s[r, t, self.listDecades[d]] + self.model.CoherentMix_relax[r, t, self.listDecades[d]] >= self.model.s[r, t, self.listDecades[d - 1]])
 
     def CstrBiomassAvail(self):
         '''
@@ -872,7 +871,7 @@ class IAM_Metal_Optimisation :
 
         # Create a dF with metals needed for the energy sources
         EnergySectorDemandy = pd.DataFrame(0.0, index=self.listMetals, columns=self.listDecades)
-        EnergySectorDemandy['2020'] = self.PowerMetalDemand_y['2020']
+        EnergySectorDemandy['2020'] = self.PowerMetalDemand_y['2020'] / self.MetalDatas['RR (%) Prod'].loc[m]
         # Loop through decades and metals
         for d in range(1, len(self.listDecades)):
             for m in self.listMetals:
@@ -1038,4 +1037,3 @@ class IAM_Metal_Optimisation :
             excel = pd.ExcelWriter(ConstraintDemandByYear_file)
             Styled_ConstraintDemandByYear.to_excel(excel)
             excel.close()
-

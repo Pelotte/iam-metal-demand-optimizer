@@ -6,7 +6,7 @@ The python code "IAM_metal_optimisation.py" is a software tool designed, on one 
 
 1. Clone the repository (or download it)
 2. Remove the contents from the 'Datas' folder, so that it is in your "folder path" (see the parameters section)
-3. Download the datas of the IAM you want to use
+3. Download the datas of the IAM you want to use in your "folder path" (see the parameters section)
 4. The code is ready to be used !
 
 ### How to download datas of the IAM you want

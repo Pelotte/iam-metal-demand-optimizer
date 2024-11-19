@@ -32,7 +32,7 @@ The folder and files name are :
 - GDP IAM > GDP models0_scenario > GDPmodels0_scenario_region
 - Power Capacity IAM > Dossier s0 models0_scenario > Cap_models0_scenario_region
 
-To do so, you can use the python code "IAM_Download_Data"
+To do so, you can use the python code "IAM_Download_Data.py"
 
 ### Choose parameters 
 

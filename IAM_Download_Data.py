@@ -17,11 +17,11 @@ import matplotlib.pyplot as plt
 
 class IAM_Download_Data :
 
-    def __init__(self, file_path_iam_results, folder_path_datas, model_s0, scenario):
+    def __init__(self, file_path_iam_results, folder_path, model_s0, scenario):
 
         '''
         :param file_path_iam_results: [string] path to the csv file with IAM datas from IIASA database
-        :param folder_path_datas: [string] path to the folder where you want to store IAM datas,
+        :param folder_path: [string] path to the folder where you want to store IAM datas,
         with external datas used in the code
         :param model_s0: Integrated Assessment Model (IAM) that wants to be studied
         (AIM..CGE, GCAM4, IMAGE, MESSAGE-GLOBIOM, REMIND-MAGPIE, WITCH-GLOBIOM)
@@ -30,7 +30,7 @@ class IAM_Download_Data :
         '''
 
         self.file_path_iam_results = file_path_iam_results
-        self.folder_path_datas = folder_path_datas
+        self.folder_path = folder_path
         self.model_s0 = model_s0
         self.scenario = scenario
 
@@ -54,7 +54,7 @@ class IAM_Download_Data :
             capacities[self.model_s0, self.scenario, r] = capacity_df
 
             # Create a file to put the excels of the regions in it
-            folder_CAP = self.folder_path_datas + 'Power Capacity IAM/Dossier s0 ' + self.model_s0 + '_' + self.scenario
+            folder_CAP = self.folder_path + 'Power Capacity IAM/Dossier s0 ' + self.model_s0 + '_' + self.scenario
 
             # Verify if the file does not exist
             if not os.path.exists(folder_CAP):
@@ -64,7 +64,7 @@ class IAM_Download_Data :
             table = capacities[self.model_s0, self.scenario, r]
 
             excel = pd.ExcelWriter(
-                self.folder_path_datas + 'Power Capacity IAM/Dossier s0 ' + self.model_s0 + '_' + self.scenario + '/ ' + 'cap' + self.model_s0 + '_' + self.scenario + '_' + r + '.xlsx')
+                self.folder_path + 'Power Capacity IAM/Dossier s0 ' + self.model_s0 + '_' + self.scenario + '/ ' + 'cap' + self.model_s0 + '_' + self.scenario + '_' + r + '.xlsx')
             table.to_excel(excel, sheet_name='results')
 
             excel.close()
@@ -178,12 +178,12 @@ class IAM_Download_Data :
             table = capacity_utilization[self.model_s0, self.scenario, r]
 
             # Create a file to put the excels of the regions in it
-            folderCF = self.folder_path_datas + 'Capacity Factor IAM/FC' + self.model_s0 + '_' + self.scenario
+            folderCF = self.folder_path + 'Capacity Factor IAM/FC' + self.model_s0 + '_' + self.scenario
             if not os.path.exists(folderCF):
                 os.makedirs(folderCF)
 
             # Generate the full path for the Excel file for this region
-            excel_path = self.folder_path_datas + 'Capacity Factor IAM/FC' + self.model_s0 + '_' + self.scenario + '/' + 'FC' + self.model_s0 + '_' + self.scenario + '_' + r + '.xlsx'
+            excel_path = self.folder_path + 'Capacity Factor IAM/FC' + self.model_s0 + '_' + self.scenario + '/' + 'FC' + self.model_s0 + '_' + self.scenario + '_' + r + '.xlsx'
 
             # Create the Excel file and write the data
             excel = pd.ExcelWriter(excel_path)
@@ -207,12 +207,12 @@ class IAM_Download_Data :
             table = GDP[self.model_s0, self.scenario, r]
 
             # Create a file to put the excels of the regions in it
-            folderGDP = self.folder_path_datas + 'GDP IAM/GDP ' + self.model_s0 + '_' + self.scenario
+            folderGDP = self.folder_path + 'GDP IAM/GDP ' + self.model_s0 + '_' + self.scenario
             if not os.path.exists(folderGDP):
                 os.makedirs(folderGDP)
 
             # Generate the full path for the Excel file for this region
-            excel_path = self.folder_path_datas + 'GDP IAM/GDP ' + self.model_s0 + '_' + self.scenario + '/' + 'GDP' + self.model_s0 + '_' + self.scenario + '_' + r + '.xlsx'
+            excel_path = self.folder_path + 'GDP IAM/GDP ' + self.model_s0 + '_' + self.scenario + '/' + 'GDP' + self.model_s0 + '_' + self.scenario + '_' + r + '.xlsx'
 
             # Create the Excel file and write the data
             excel = pd.ExcelWriter(excel_path)

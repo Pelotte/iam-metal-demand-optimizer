@@ -816,8 +816,7 @@ class IAM_Metal_Optimisation_EV :
         self.model.constraintEVCoherence2020 = ConstraintList()
         # The initial EV mix of 2020 cannot be changed
         for v in self.listVehicle :
-            for d in self.listDecades :
-                self.model.constraintEVCoherence2020.add(self.model.x[v,d] == self.x0.loc[v,d])
+            self.model.constraintEVCoherence2020.add(self.model.x[v,'2020'] == self.x0.loc[v,'2020'])
 
         # Creation of a list of constraint to add coherence in the optimised technological mix of 2020
         self.model.constraintMixCoherence2020 = ConstraintList()

@@ -11,7 +11,7 @@ Co-supervisor : Anne De Bortoli
 Created at Montréal, Canada, in 2024
 '''
 
-'tvonvoenve'
+
 # Import usual libraries
 import pandas as pd
 import numpy as np
@@ -617,7 +617,7 @@ class IAM_Metal_Optimisation_EV :
                     if v_agg in v:
                         if mo in v:
                             for m in self.MI_Motor.index:
-                                MI_Vehicle.loc[m][v] += self.MI_Motor.loc[m][mo] * self.Vehicle_stat.loc['Motor'][v_agg]
+                                MI_Vehicle.loc[m][v] += self.MI_Motor.loc[m][mo]
 
         self.MI_Vehicle=MI_Vehicle
 

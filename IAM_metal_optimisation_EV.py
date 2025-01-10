@@ -167,7 +167,6 @@ class IAM_Metal_Optimisation_EV :
         # Import the matrix of correspondence between Techno and Techno Init
         self.TechnoMatrix = pd.read_excel(self.folder_path + 'Techno Matrix.xlsx', index_col=0)
 
-
         # Import initial number of vehicles, aggregated by vehicle type, in million sold by year
         self.N_Vehicle_agg = pd.read_excel(self.folder_path + 'Market Share in time EV.xlsx', sheet_name='Proj million Vehicle',
                                       index_col=0)
@@ -396,6 +395,8 @@ class IAM_Metal_Optimisation_EV :
             name_sheet = d
             MarketShareInit_df[d] = pd.read_excel(f'{self.folder_path}Market Share in time - {self.ModelisationType}.xlsx', sheet_name=name_sheet,
                                                       index_col=0)
+
+        self.MarketShareInit_df = MarketShareInit_df
 
         # Align IAM initial techno and matrix of MS, according to the techno represented by the model_s0 studied
         MarketShare_df = {}
@@ -908,6 +909,17 @@ class IAM_Metal_Optimisation_EV :
                                                        + self.model.Mining_relax[
                                                            m, self.listDecades[d]])  # Relaxation variable
 
+    def CstrNewTechnoEV(self):
+
+        '''
+        Constraint to model the limit of the penetration of the new sodium-ion battery
+        '''
+
+        self.model.Constraint_NewTechnoEV = ConstraintList()
+
+        for d in self.listDecades :
+            self.model.Constraint_NewTechnoEV.add(sum(self.model.x[v,d] for v in self.listVehicle if "Na-ion" in v)
+                                                     <= 1.1*sum(self.x0.loc[v,d] for v in self.listVehicle if "Na-ion" in v))
 
     def CstrBiomassAvail(self):
         '''

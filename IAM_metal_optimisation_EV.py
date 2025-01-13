@@ -90,12 +90,12 @@ class IAM_Metal_Optimisation_EV :
             # List of the sub-technologies studied
             self.listTechno = pd.read_excel(file, 'technologies precises', index_col=0).squeeze().tolist()
             # List of the initial disaggregated technologies studied
-            self.listTechnoFlex= pd.read_excel(file, 'technologies flex', index_col=0).squeeze().tolist()
+            self.listTechnoAgg= pd.read_excel(file, 'technologies flex', index_col=0).squeeze().tolist()
 
             # Vehicles
 
             # List of the aggregated vehicles studied
-            self.listVehicleAgg = pd.read_excel(file, 'Vehicle', index_col=0).squeeze().tolist()
+            self.listVehicleType = pd.read_excel(file, 'Vehicle', index_col=0).squeeze().tolist()
             # List of the disaggregated batteries studied
             self.listBattery = pd.read_excel(file, 'EV battery disag', index_col=0).squeeze().tolist()
             # List of the aggregated batteries studied
@@ -168,7 +168,7 @@ class IAM_Metal_Optimisation_EV :
         self.TechnoMatrix = pd.read_excel(self.folder_path + 'Techno Matrix.xlsx', index_col=0)
 
         # Import initial number of vehicles, aggregated by vehicle type, in million sold by year
-        self.N_Vehicle_agg = pd.read_excel(self.folder_path + 'Market Share in time EV.xlsx', sheet_name='Proj million Vehicle',
+        self.VehicleType_Demand = pd.read_excel(self.folder_path + 'Market Share in time EV.xlsx', sheet_name='Proj million Vehicle',
                                       index_col=0)
         # Import market share of EV battery type, in percentage, by battery, by year
         self.MS_Battery = pd.read_excel(self.folder_path + 'Market Share in time EV.xlsx', sheet_name='MS Battery', index_col=0)
@@ -328,7 +328,7 @@ class IAM_Metal_Optimisation_EV :
         # Change the CF of CSP for those of the literature, for the decades studied
         for region in self.listRegions:
             for years in self.listDecades:
-                for techno in self.listTechnoFlex:
+                for techno in self.listTechnoAgg:
                     # if the techno is a sub-techno of solar CSP
                     if "CSP" in techno:
                         # replace the CF by the one from the literature
@@ -337,7 +337,7 @@ class IAM_Metal_Optimisation_EV :
         # Change the CF of solar to be constant in time, for the decades studied
         for region in self.listRegions:
             for years in self.listDecades[1:]: # exclude the first decade
-                for techno in self.listTechnoFlex:
+                for techno in self.listTechnoAgg:
                     # if the techno is a sub-techno of solar PV
                     if "Sol" in techno:
                         # replace the CF by the one from IAM at the first decade
@@ -414,7 +414,7 @@ class IAM_Metal_Optimisation_EV :
                 self.s0[r][y] = pd.DataFrame(MarketShare_df[y].transpose() @ IAM_initial_data[r][y])
 
         if self.ModelisationType =='Opti':
-            self.listTechnoIAM = self.listTechnoFlex
+            self.listTechnoIAM = self.listTechnoAgg
         if self.ModelisationType =='Init':
             self.listTechnoIAM = self.listTechno
 
@@ -538,7 +538,7 @@ class IAM_Metal_Optimisation_EV :
         else:
             scenarioIEA_VE = 'RTS'
 
-        self.N_Vehicle_agg = self.N_Vehicle_agg[self.N_Vehicle_agg["Scenario"] == scenarioIEA_VE]
+        self.VehicleType_Demand = self.VehicleType_Demand[self.VehicleType_Demand["Scenario"] == scenarioIEA_VE]
 
         # Scenario for MS of batteries from IRENA
         scenarioIRENA_battery = str()
@@ -553,12 +553,12 @@ class IAM_Metal_Optimisation_EV :
         self.MS_Battery = self.MS_Battery[self.MS_Battery["Scenario"] == scenarioIRENA_battery]
 
         # Create an empty DataFrame with defined columns
-        N_Vehicle = pd.DataFrame(0, index=[], columns=self.listDecades)
+        Vehicle_Demand = pd.DataFrame(0, index=[], columns=self.listDecades)
 
-        for v in self.listVehicleAgg:
+        for v in self.listVehicleType:
             if v == 'ICEV':
                 # Directly copy data for ICEV (Internal Combustion Engine Vehicle)
-                N_Vehicle.loc[v] = self.N_Vehicle_agg.loc[v]
+                Vehicle_Demand.loc[v] = self.VehicleType_Demand.loc[v]
             else:
                 for b in self.listBatteryAgg:
                     # Create names for the PM (Permanent Magnet) and Induction battery configurations
@@ -566,30 +566,30 @@ class IAM_Metal_Optimisation_EV :
                     v_ind_Batt = f"{v}_Ind_{b}"
 
                     # Add new rows with initial values (set to 0)
-                    N_Vehicle.loc[v_PM_Batt] = 0
-                    N_Vehicle.loc[v_ind_Batt] = 0
+                    Vehicle_Demand.loc[v_PM_Batt] = 0
+                    Vehicle_Demand.loc[v_ind_Batt] = 0
 
                     for d in self.listDecades:
                         # Calculate and assign values based on market share and battery data
-                        N_Vehicle.at[v_PM_Batt, d] = (
-                                self.N_Vehicle_agg.loc[v, d]
+                        Vehicle_Demand.at[v_PM_Batt, d] = (
+                                self.VehicleType_Demand.loc[v, d]
                                 * self.MS_Motor.loc['MS', 'Motor PM']
                                 * self.MS_Battery.loc[b, d]
                         )
 
-                        N_Vehicle.at[v_ind_Batt, d] = (
-                                self.N_Vehicle_agg.loc[v, d]
+                        Vehicle_Demand.at[v_ind_Batt, d] = (
+                                self.VehicleType_Demand.loc[v, d]
                                 * self.MS_Motor.loc['MS', 'Motor induction']
                                 * self.MS_Battery.loc[b, d]
                         )
 
         # Update listVehicle with precise names
-        self.listVehicle = N_Vehicle.index
+        self.listVehicle = Vehicle_Demand.index
         # Replace 0 values with a very small value (already initialized)
-        N_Vehicle.replace(0.0, 10 ** -15, inplace=True)
+        Vehicle_Demand.replace(0.0, 10 ** -15, inplace=True)
 
         # Create the initial EV scenario "x0"
-        self.x0 = N_Vehicle
+        self.x0 = Vehicle_Demand
 
     def MI_EV(self):
 
@@ -599,14 +599,14 @@ class IAM_Metal_Optimisation_EV :
         for v in self.listVehicle:
 
             # Add metal intensities of vehicles by vehicle type
-            for v_agg in self.listVehicleAgg:
+            for v_agg in self.listVehicleType:
                 if v_agg in v:
                     for m in self.MI_VehicleAgg.index:
                         MI_Vehicle.loc[m][v] += self.MI_VehicleAgg.loc[m][v_agg]
 
             # Add metal intensities of vehicles by battery type
             for b in self.listBatteryAgg:
-                for v_agg in self.listVehicleAgg:
+                for v_agg in self.listVehicleType:
                     if v_agg in v:
                         if b in v:
                             for m in self.MI_Battery_ag.index:
@@ -614,7 +614,7 @@ class IAM_Metal_Optimisation_EV :
 
             # Add metal intensities of vehicles by motor type
             for mo in self.listMotor:
-                for v_agg in self.listVehicleAgg:
+                for v_agg in self.listVehicleType:
                     if v_agg in v:
                         if mo in v:
                             for m in self.MI_Motor.index:
@@ -634,7 +634,7 @@ class IAM_Metal_Optimisation_EV :
         # 1. Estimate OSD by year in 2020
 
         # New capacity installed between 2010 and 2020, by techno
-        new2020Capacity_d = pd.DataFrame(0.0, index=self.listTechnoFlex, columns=['2020'])
+        new2020Capacity_d = pd.DataFrame(0.0, index=self.listTechnoAgg, columns=['2020'])
         for t in self.listTechnoIAM:
             for r in self.listRegions:
                 # Only account if there is an increase in capacity
@@ -646,7 +646,7 @@ class IAM_Metal_Optimisation_EV :
         # Metal demand for the new installed capacity at the year 2020
         PowerMetalDemand_y = pd.DataFrame(0.0, index=self.listMetals, columns=['2020'])
         for m in self.listMetals:
-            for t in self.listTechnoFlex:
+            for t in self.listTechnoAgg:
                 if t == 'Sol_Thin_Film' or t == 'Wind_Onshore':
                     # Aggregated MI data, with 2010 market share
                     PowerMetalDemand_y['2020'].loc[m] = PowerMetalDemand_y['2020'].loc[m] + \
@@ -771,7 +771,7 @@ class IAM_Metal_Optimisation_EV :
             expr=
             sum(((((sum(self.TechnoMatrix[t].loc[T] * self.model.s[r,t,d] for t in self.listTechno))
                    -self.s0[r].loc[T][d])/self.s0[r].loc[T][d])**2)
-                for r in self.listRegions for T in self.listTechnoFlex for d in self.listDecades)
+                for r in self.listRegions for T in self.listTechnoAgg for d in self.listDecades)
 
             + sum(((self.model.x[v, d] - self.x0.loc[v, d]) / self.x0.loc[v, d]) ** 2 for v in self.listVehicle for d in self.listDecades)
 
@@ -795,8 +795,8 @@ class IAM_Metal_Optimisation_EV :
             for d in self.listDecades:
                 self.model.ConstraintEnergyDemand.add(
                     sum(sum(self.TechnoMatrix[t].loc[T] * self.model.s[r, t, d] for t in self.listTechno)
-                        * self.CF_disag[r].loc[T][d] for T in self.listTechnoFlex)
-                    >= sum(self.s0[r].loc[T][d] * self.CF_disag[r].loc[T][d] for T in self.listTechnoFlex)
+                        * self.CF_disag[r].loc[T][d] for T in self.listTechnoAgg)
+                    >= sum(self.s0[r].loc[T][d] * self.CF_disag[r].loc[T][d] for T in self.listTechnoAgg)
                 )
 
     def CstrVehicleDemand(self):
@@ -823,7 +823,7 @@ class IAM_Metal_Optimisation_EV :
         self.model.constraintMixCoherence2020 = ConstraintList()
         # The initial technological mix of 2020 cannot be changed
         for r in self.listRegions:
-            for T in self.listTechnoFlex:
+            for T in self.listTechnoAgg:
                 self.model.constraintMixCoherence2020.add(sum(self.TechnoMatrix[t].loc[T] *self.model.s[r,t,'2020'] for t in self.listTechno)
                                                           ==self.s0[r].loc[T]['2020']
                                                           )

@@ -97,7 +97,7 @@ class IAM_Metal_Optimisation_EV :
             # List of the aggregated vehicles studied
             self.listVehicleType = pd.read_excel(file, 'Vehicle', index_col=0).squeeze().tolist()
             # List of the disaggregated batteries studied
-            self.listBattery = pd.read_excel(file, 'EV battery disag', index_col=0).squeeze().tolist()
+            self.listBatteryDisag = pd.read_excel(file, 'EV battery disag', index_col=0).squeeze().tolist()
             # List of the aggregated batteries studied
             self.listBatteryAgg = pd.read_excel(file, 'EV battery ag', index_col=0).squeeze().tolist()
             # List of the motors studied
@@ -167,26 +167,25 @@ class IAM_Metal_Optimisation_EV :
         # Import the matrix of correspondence between Techno and Techno Init
         self.TechnoMatrix = pd.read_excel(self.folder_path + 'Techno Matrix.xlsx', index_col=0)
 
+
+        # Import the matrix of correspondence between TechnoEV agg and Techno EV disag
+        self.TechnoMatrixEV = pd.read_excel(self.folder_path + 'Techno Matrix.xlsx', sheet_name='Techno matrix EV', index_col=0)
         # Import initial number of vehicles, aggregated by vehicle type, in million sold by year
         self.VehicleType_Demand = pd.read_excel(self.folder_path + 'Market Share in time EV.xlsx', sheet_name='Proj million Vehicle',
                                       index_col=0)
         # Import market share of EV battery type, in percentage, by battery, by year
         self.MS_Battery = pd.read_excel(self.folder_path + 'Market Share in time EV.xlsx', sheet_name='MS Battery', index_col=0)
-
         # Import market share of EV motor type, in percentage, fixed in time
         self.MS_Motor = pd.read_excel(self.folder_path + 'Market Share in time EV.xlsx', sheet_name='MS Motor', index_col=0)
 
         # Import metal intensity in g of metal per vehicle type
-        self.MI_VehicleAgg = pd.read_excel(self.folder_path + 'Metal Intensity EV.xlsx', sheet_name='MI Vehicle', index_col=0)
-
+        self.MI_VehicleType = pd.read_excel(self.folder_path + 'Metal Intensity EV.xlsx', sheet_name='MI Vehicle', index_col=0)
         # Import metal intensity in g of metal per kWh of battery aggregated
-        self.MI_Battery_ag = pd.read_excel(self.folder_path + 'Metal Intensity EV.xlsx', sheet_name='MI Battery pack ag',
+        self.MI_BatteryAgg = pd.read_excel(self.folder_path + 'Metal Intensity EV.xlsx', sheet_name='MI Battery pack ag',
                                       index_col=0)
-
         # Import metal intensity in g of metal per kWh of battery disaggregated
-        self.MI_Battery_disag = pd.read_excel(self.folder_path + 'Metal Intensity EV.xlsx', sheet_name='MI Battery pack disag',
+        self.MI_BatteryDisag = pd.read_excel(self.folder_path + 'Metal Intensity EV.xlsx', sheet_name='MI Battery pack disag',
                                          index_col=0)
-
         # Import metal intensity in g of metal per kW of motor
         self.MI_Motor = pd.read_excel(self.folder_path + 'Metal Intensity EV.xlsx', sheet_name='MI Motor', index_col=0)
 
@@ -583,35 +582,55 @@ class IAM_Metal_Optimisation_EV :
                                 * self.MS_Battery.loc[b, d]
                         )
 
-        # Update listVehicle with precise names
-        self.listVehicle = Vehicle_Demand.index
+        # list of vehicles, with vehicle type, motor type, and aggregated battery types
+        self.listVehicleAgg = Vehicle_Demand.index.tolist()
         # Replace 0 values with a very small value (already initialized)
         Vehicle_Demand.replace(0.0, 10 ** -15, inplace=True)
-
-        # Create the initial EV scenario "x0"
+        # Create x0, the initial scenario for EV - motor - battery demand
         self.x0 = Vehicle_Demand
+
+        # list of vehicles, with vehicle type, motor type, and precise battery types
+        listVehicleDisag = []
+        for v in self.listVehicleType:
+            if v == 'ICEV':
+                # Copier directement les données pour ICEV
+                listVehicleDisag.append('ICEV')
+            else:
+                for b in self.listBatteryDisag:
+                    listVehicleDisag.append(f"{v}_PM_{b}")
+                    listVehicleDisag.append(f"{v}_Ind_{b}")
+        self.listVehicleDisag = listVehicleDisag
 
     def MI_EV(self):
 
-        # Metal intensity in g of metal per vehicle type
+        # Initial scenario uses aggregated battery data
+        if self.ModelisationType == 'Init':
+            self.MI_Battery = self.MI_BatteryAgg
+            self.listBattery = self.listBatteryAgg
+            self.listVehicle = self.listVehicleAgg
+        # Optimised scenario uses disaggregated battery data
+        elif self.ModelisationType == 'Opti':
+            self.MI_Battery = self.MI_BatteryDisag
+            self.listBattery = self.listBatteryDisag
+            self.listVehicle = self.listVehicleDisag
+
+        # Metal intensity in g of metal per vehicle type with agg or disag battery type
+        # According to the Modelisation Type chosen
         MI_Vehicle = pd.DataFrame(0.0, columns=self.listVehicle, index=self.listMetals)
 
         for v in self.listVehicle:
-
             # Add metal intensities of vehicles by vehicle type
             for v_agg in self.listVehicleType:
                 if v_agg in v:
-                    for m in self.MI_VehicleAgg.index:
-                        MI_Vehicle.loc[m][v] += self.MI_VehicleAgg.loc[m][v_agg]
-
+                    for m in self.MI_VehicleType.index:
+                        MI_Vehicle.loc[m][v] += self.MI_VehicleType.loc[m][v_agg]
             # Add metal intensities of vehicles by battery type
-            for b in self.listBatteryAgg:
+            for b in self.listBattery:
                 for v_agg in self.listVehicleType:
                     if v_agg in v:
                         if b in v:
-                            for m in self.MI_Battery_ag.index:
-                                MI_Vehicle.loc[m][v] += self.MI_Battery_ag.loc[m][b] * self.Vehicle_stat.loc['Battery'][v_agg]
-
+                            for m in self.MI_Battery.index:
+                                MI_Vehicle.loc[m][v] += self.MI_Battery.loc[m][b] * self.Vehicle_stat.loc['Battery'][v_agg]
             # Add metal intensities of vehicles by motor type
             for mo in self.listMotor:
                 for v_agg in self.listVehicleType:
@@ -619,8 +638,33 @@ class IAM_Metal_Optimisation_EV :
                         if mo in v:
                             for m in self.MI_Motor.index:
                                 MI_Vehicle.loc[m][v] += self.MI_Motor.loc[m][mo]
+        self.MI_Vehicle = MI_Vehicle
 
-        self.MI_Vehicle=MI_Vehicle
+        # Metal intensity in g of metal per vehicle type, with agregated battery type
+        MI_VehicleAgg = pd.DataFrame(0.0, columns=self.listVehicleAgg, index=self.listMetals)
+
+        for v in self.listVehicleAgg:
+            # Add metal intensities of vehicles by vehicle type
+            for v_agg in self.listVehicleType:
+                if v_agg in v:
+                    for m in self.MI_VehicleType.index:
+                        MI_VehicleAgg.loc[m][v] += self.MI_VehicleType.loc[m][v_agg]
+            # Add metal intensities of vehicles by battery type
+            for b in self.listBatteryAgg:
+                for v_agg in self.listVehicleType:
+                    if v_agg in v:
+                        if b in v:
+                            for m in self.MI_BatteryAgg.index:
+                                MI_VehicleAgg.loc[m][v] += self.MI_BatteryAgg.loc[m][b] * self.Vehicle_stat.loc['Battery'][
+                                    v_agg]
+            # Add metal intensities of vehicles by motor type
+            for mo in self.listMotor:
+                for v_agg in self.listVehicleType:
+                    if v_agg in v:
+                        if mo in v:
+                            for m in self.MI_Motor.index:
+                                MI_VehicleAgg.loc[m][v] += self.MI_Motor.loc[m][mo]
+        self.MI_VehicleAgg = MI_VehicleAgg
 
     def OSD(self):
         '''
@@ -667,8 +711,7 @@ class IAM_Metal_Optimisation_EV :
             # Total prod in 2020 - Metal for grid and storage - Metal for powCap installation in 2020 - Metal for EV
             InitialOSD = ((self.Prod['2020'].loc[m] - self.OTDy['2020'].loc[m] / self.MetalData['RR (%) Prod'].loc[m]
                           -self.PowerMetalDemand_y['2020'].loc[m] / self.MetalData['RR (%) Prod'].loc[m])
-                          - sum(self.x0.loc[v, '2020'] * self.MI_Vehicle.loc[m][v] / self.MetalData['RR (%) Prod'].loc[m] for v in
-                    self.listVehicle))
+                          - sum(self.x0.loc[v, '2020'] * self.MI_VehicleAgg.loc[m][v] / self.MetalData['RR (%) Prod'].loc[m] for v in self.listVehicleAgg))
             # Change OSD value only if it is above 0, if not : = 0.
             if InitialOSD > 0:
                 OSDy["2020"].loc[m] = InitialOSD
@@ -773,7 +816,10 @@ class IAM_Metal_Optimisation_EV :
                    -self.s0[r].loc[T][d])/self.s0[r].loc[T][d])**2)
                 for r in self.listRegions for T in self.listTechnoAgg for d in self.listDecades)
 
-            + sum(((self.model.x[v, d] - self.x0.loc[v, d]) / self.x0.loc[v, d]) ** 2 for v in self.listVehicle for d in self.listDecades)
+
+            + sum((((sum(self.TechnoMatrixEV[v].loc[V] * self.model.x[v, d] for v in self.listVehicle)
+                     - self.x0.loc[V, d]) / self.x0.loc[V, d]) ** 2)
+                  for V in self.listVehicleAgg for d in self.listDecades)
 
             + sum(self.M * (self.model.Res_relax[m] / self.MetalData[self.ResLimit].loc[m]) for m in self.listMetals_knownRes)
             + sum(self.M * (self.model.Mining_relax[m, d] / self.Prod[d].loc[m]) for m in self.listMetals for d in self.listDecades)
@@ -800,24 +846,30 @@ class IAM_Metal_Optimisation_EV :
                 )
 
     def CstrVehicleDemand(self):
+        '''
+           Constraint the model to meet the predicted vehicle demand, for every year
+        '''
 
         self.model.ConstraintVehicleDemand = ConstraintList()
 
         # The total number of vehicles sold is fixed, by decade
         for d in self.listDecades:
-            self.model.ConstraintVehicleDemand.add(sum(self.model.x[v,d] for v in self.listVehicle) == sum(self.x0.loc[v,d] for v in self.listVehicle))
-
+            self.model.ConstraintVehicleDemand.add(
+                sum(sum(self.TechnoMatrixEV[v].loc[V] * self.model.x[v, d] for v in self.listVehicle) for V in self.listVehicleAgg)
+                == sum(self.x0.loc[V, d] for V in self.listVehicleAgg))
     def CstrTechnoCoherence(self):
         '''
-        Constraint model to keep the initial IAM mix for 2020,
-        and to keep the installed capacity during the previous decade
+        Constraint model to keep the initial EV mix and IAM mix for 2020,
+        and to keep the installed capacity of the previous decade during the following years
         '''
 
         # Creation of a list of constraint to add coherence in the optimised EV mix of 2020
         self.model.constraintEVCoherence2020 = ConstraintList()
         # The initial EV mix of 2020 cannot be changed
-        for v in self.listVehicle :
-            self.model.constraintEVCoherence2020.add(self.model.x[v,'2020'] == self.x0.loc[v,'2020'])
+        for V in self.listVehicleAgg:
+            self.model.constraintEVCoherence2020.add(
+                sum(self.TechnoMatrixEV[v].loc[V] * self.model.x[v, '2020'] for v in self.listVehicle)
+                == self.x0.loc[V, '2020'])
 
         # Creation of a list of constraint to add coherence in the optimised technological mix of 2020
         self.model.constraintMixCoherence2020 = ConstraintList()
@@ -839,8 +891,10 @@ class IAM_Metal_Optimisation_EV :
 
     def CstrCappedCC(self):
         '''
-        Constrain the model to not increase fossil fuel technologies, to limit climate change
+        Constrain the model to not increase fossil fuel technologies and thermic vehicles,
+        to limit climate change
         '''
+
         self.model.constraintCC = ConstraintList()
 
         for r in self.listRegions:
@@ -852,10 +906,11 @@ class IAM_Metal_Optimisation_EV :
             # Cannot change the number of ICEV vehicles
             self.model.constraintCC.add(self.model.x['ICEV', d] - self.x0.loc['ICEV', d] <= 0)
 
-            # Cannot change the total number of HyEV but can change the motors or battery used
+            # Cannot change the total number of HEV but can change the motors or battery used
             self.model.constraintCC.add(
-                sum(self.model.x[v, d] for v in self.listVehicle if 'HyEV' in v)
-                - sum(self.x0.loc[v, d] for v in self.listVehicle if 'HyEV' in v) <= 0)
+                sum(sum(self.TechnoMatrixEV[v].loc[V] * self.model.x[v, d] for v in self.listVehicle)
+                    for V in self.listVehicleAgg if 'HyEV' in V)
+                - sum(self.x0.loc[V, d] for V in self.listVehicleAgg if 'HyEV' in V) == 0)
 
     def CstrMetalRes(self):
         '''
@@ -872,6 +927,7 @@ class IAM_Metal_Optimisation_EV :
                                                       + sum(
                 self.model.x[v, self.listDecades[d]] * 10 * self.MI_Vehicle.loc[m][v] / self.MetalData['RR (%) Res'].loc[m] for d in
                 range(1, len(self.listDecades)) for v in self.listVehicle)
+
                                                       + sum(self.OTDd.loc[m][d] / self.MetalData['RR (%) Res'].loc[m] for d in self.listDecades)
                                                       + sum(self.OSDd[d].loc[m] for d in self.listDecades)  # Cumulated demand
                                                       - self.model.Res_relax[m]
@@ -917,15 +973,18 @@ class IAM_Metal_Optimisation_EV :
 
         self.model.Constraint_NewTechnoEV = ConstraintList()
 
-        for d in self.listDecades :
-            self.model.Constraint_NewTechnoEV.add(sum(self.model.x[v,d] for v in self.listVehicle if "Na-ion" in v)
-                                                     <= 1.1*sum(self.x0.loc[v,d] for v in self.listVehicle if "Na-ion" in v))
+        for d in self.listDecades:
+            self.model.Constraint_NewTechnoEV.add(sum(
+                sum(self.TechnoMatrixEV[v].loc[V] * self.model.x[v, d] for v in self.listVehicle)
+                for V in self.listVehicleAgg if "Na-ion" in V)
+                <= 1.1 * sum(self.x0.loc[V, d] for V in self.listVehicleAgg if "Na-ion" in V))
 
     def CstrBiomassAvail(self):
         '''
         Constraint the model to limit biomass power capacity under
         a potential of future biomass availability
         '''
+
         self.model.Constraint_Biomass = ConstraintList()
 
         for d in self.listDecades:
@@ -1043,8 +1102,10 @@ class IAM_Metal_Optimisation_EV :
                     self.MetalIntensity_doc[self.listDecades[d - 1]][t].loc[m]) / 2)
                 / self.MetalData['RR (%) Res'].loc[m] for t in self.listTechno_Ren for r in self.listRegions for d
                 in range(1, len(self.listDecades)))
+
             EVSectorDemand[m] = sum(self.res_EV.loc[v,self.listDecades[d]]*10*self.MI_Vehicle.loc[m][v]/self.MetalData['RR (%) Res'].loc[m]
                                     for d in range(1, len(self.listDecades)) for v in self.listVehicle)
+
             OtherTransitionDemand[m] = sum(
                 self.OTDd.loc[m][d] / self.MetalData['RR (%) Res'].loc[m] for d in self.listDecades)
             OtherSectorDemand[m] = sum(self.OSDd[d].loc[m] for d in self.listDecades)  # Cumulated demand

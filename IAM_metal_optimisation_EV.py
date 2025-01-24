@@ -624,13 +624,22 @@ class IAM_Metal_Optimisation_EV :
         # Years from 2018 to 2050
         self.listYearsVehicle = Vehicle_Sales_Tot.index
 
-        # Create the dataFrame for stock of vehicles by years
+        # Create the dataFrame for sales of vehicles by vehicle type by year, from 2018 to 2050
         VehicleType_Sales = pd.DataFrame(index=self.listVehicleType, columns=self.listYearsVehicle)
 
         for vT in self.listVehicleType:
             for y in self.listYearsVehicle:
                 # Stock of total vehicles at the year y * Market share by vehicle type v at the year y
                 VehicleType_Sales.loc[vT, y] = Vehicle_Sales_Tot[y] * self.MS_Vehicle_Type.loc[
+                    (self.MS_Vehicle_Type["drive_train"] == vT) & (self.MS_Vehicle_Type["year"] == y), "value"].values[0]
+
+        # Create the dataFrame for sales of vehicles for growth by vehicle type by year, from 2006 to 2050
+        self.VehicleType_Growth = pd.DataFrame(index=self.listVehicleType, columns=self.listYearsTot[1:])
+
+        for vT in self.listVehicleType:
+            for y in self.listYearsTot[1:]:
+                # Stock of total vehicles at the year y * Market share by vehicle type v at the year y
+                self.VehicleType_Growth.loc[vT, y] = Sales_Growth_Tot[y] * self.MS_Vehicle_Type.loc[
                     (self.MS_Vehicle_Type["drive_train"] == vT) & (self.MS_Vehicle_Type["year"] == y), "value"].values[0]
 
         # Scenario for MS of batteries from IRENA
@@ -921,7 +930,7 @@ class IAM_Metal_Optimisation_EV :
                      - self.x0.loc[V, d]) / self.x0.loc[V, d]) ** 2)
                   for V in self.listVehicleAgg for d in self.listDecades)
 
-            + sum((self.model.Res_relax[m] / (self.MetalData[self.ResLimit].loc[m]*10**3)) for m in self.listMetals_knownRes)
+            + sum(self.M * (self.model.Res_relax[m] / self.MetalData[self.ResLimit].loc[m]) for m in self.listMetals_knownRes)
             + sum(self.M * (self.model.Mining_relax[m, d] / self.Prod[d].loc[m]) for m in self.listMetals for d in self.listDecades)
             + sum(self.M * (self.model.CoherentMix_relax[r, t_r, d]) for r in self.listRegions for t_r in self.listTechno_Ren for d in self.listDecades)
             + sum(self.M * (self.model.Stock_relax[vT, y]) ** 2 for vT in self.listVehicleType for y in self.listYearsVehicle)
@@ -1035,11 +1044,14 @@ class IAM_Metal_Optimisation_EV :
             self.model.constraint_DemandCumulated.add(sum((self.model.s[r,t,self.listDecades[d]]-self.model.s[r,t,self.listDecades[d-1]])
                                           *((self.MetalIntensity_doc[self.listDecades[d]][t].loc[m]+self.MetalIntensity_doc[self.listDecades[d-1]][t].loc[m])/2)
                                           /self.MetalData['RR (%) Res'].loc[m] for t in self.listTechno_Ren for r in self.listRegions for d in range(1, len(self.listDecades)))
-
-                                                      # Metal demand to create the vehicle stock between 2020 and 2050
-                                                      + sum(self.model.x[v, y] * self.MI_Vehicle.loc[m][v] /
-                                                            self.MetalData['RR (%) Res'].loc[m]
-                                                            for v in self.listVehicle for y in self.listYearsVehicle[2:])
+                                                      # Metal demand to create the vehicle stock with recycling between 2020 and 2030
+                                                      + sum(sum(self.model.x[v, self.listYearsVehicle[y]]* self.MI_Vehicle.loc[m][v] for v in self.listVehicle)
+                                         - self.VehicleType_Growth.loc['ICEV', self.listYearsTot[y + 1]] * 80 / 100 * self.MI_Vehicle.loc[m]['ICEV']
+                                         for y in range(2, 12))
+                                                      # Metal demand to create the vehicle stock with recycling between 2030 and 2040
+                                                      + sum(
+                (self.model.x[v, self.listYearsVehicle[y]] - self.model.x[v, self.listYearsTot[y + 1]] * 80 / 100) * self.MI_Vehicle.loc[m][v] /
+                self.MetalData['RR (%) Res'].loc[m] for v in self.listVehicle for y in range(12, len(self.listYearsVehicle)))
 
                                                       + sum(self.OTDd.loc[m][d] / self.MetalData['RR (%) Res'].loc[m]
                                                             for d in self.listDecades)
@@ -1217,8 +1229,13 @@ class IAM_Metal_Optimisation_EV :
                 / self.MetalData['RR (%) Res'].loc[m] for t in self.listTechno_Ren for r in self.listRegions for d
                 in range(1, len(self.listDecades)))
 
-            EVSectorDemand[m] = sum(self.res_EV.loc[v,y]*self.MI_Vehicle.loc[m][v]/self.MetalData['RR (%) Res'].loc[m]
-                                     for v in self.listVehicle for y in self.listYearsVehicle[2:])
+            EVSectorDemand[m] = (sum(sum(self.res_EV.loc[v, self.listYearsVehicle[y]]* self.MI_Vehicle.loc[m][v] for v in self.listVehicle)
+                                         - self.VehicleType_Growth.loc['ICEV', self.listYearsTot[y + 1]] * 80 / 100 * self.MI_Vehicle.loc[m]['ICEV']
+                                         for y in range(2, 12))
+                                 + sum((self.res_EV.loc[v, self.listYearsVehicle[y]]
+                                        - self.res_EV.loc[v, self.listYearsTot[y + 1]] * 80 / 100)
+                                       * self.MI_Vehicle.loc[m][v] / self.MetalData['RR (%) Res'].loc[m]
+                                       for v in self.listVehicle for y in range(12, len(self.listYearsVehicle))))
 
             OtherTransitionDemand[m] = sum(
                 self.OTDd.loc[m][d] / self.MetalData['RR (%) Res'].loc[m] for d in self.listDecades)
@@ -1255,9 +1272,10 @@ class IAM_Metal_Optimisation_EV :
                     self.MetalIntensity_doc[self.listDecades[d]][t].loc[m]
                     * newCapacityD[r][self.listDecades[d]].loc[t] / 10
                     for t in self.listTechno_Ren for r in self.listRegions)
-            for d in self.listDecades :
-                EVSectorDemand[d].loc[m] = sum(self.res_EV.loc[v][d]*self.MI_Vehicle.loc[m][v]
-                                               /self.MetalData['RR (%) Prod'].loc[m] for v in self.listVehicle)
+
+                EVSectorDemand[self.listDecades[d]].loc[m] = sum((self.res_EV.loc[v,self.listDecades[d]]
+                                                                  *self.MI_Vehicle.loc[m][v])/self.MetalData['RR (%) Prod'].loc[m]
+                                                                 for v in self.listVehicle)
         self.EVSectorDemand = EVSectorDemand
 
         # Create a three dimensions dataFrame to add all datas of consumption by decade
@@ -1276,6 +1294,15 @@ class IAM_Metal_Optimisation_EV :
                                                                   self.MetalData['RR (%) Prod'].loc[m]
                 DemandByYear_df[m].loc['EV Sector Demand'] = self.EVSectorDemand.loc[m]
         self.DemandByYear_df = DemandByYear_df
+
+        # Create a dF for secondary production for EV
+        # Create a dF for secondary production for EV
+        Secondary_Prod_df = pd.DataFrame(0.0, index=self.listMetals, columns=self.listDecades)
+        for m in self.listMetals:
+            for d in range(1, len(self.listDecades)):
+                Secondary_Prod_df[self.listDecades[d]].loc[m] = sum(self.res_EV.loc[v, self.listYearsVehicle[(d - 1) * 10]]
+                                                               * 80 / 100 * self.MI_Vehicle[v].loc[m] for v in self.listVehicle)
+        self.Secondary_Prod_df = Secondary_Prod_df
 
 
     def SaveResults(self):
@@ -1310,6 +1337,17 @@ class IAM_Metal_Optimisation_EV :
         # Create the Excel file and write the data
         excel = pd.ExcelWriter(excel_path)
         self.res_EV.to_excel(excel, sheet_name='EV')
+        excel.close()
+
+        # Save the secondary production of the model
+        # Generate the full path for the Excel file for this scenario and model
+        folderRecycling = self.Res_folder + '/SecondaryProdEV'
+        if not os.path.exists(folderRecycling):
+            os.makedirs(folderRecycling)
+        excel_path = folderRecycling + '/SecondaryProdEV_' + self.ModelisationType + '_' + self.model_s0 + '_' + self.scenario + '.xlsx'
+        # Create the Excel file and write the data
+        excel = pd.ExcelWriter(excel_path)
+        self.Secondary_Prod_df.to_excel(excel, sheet_name='SecondaryProdfromEV')
         excel.close()
 
         # Save the Cumulated Demand in the computer

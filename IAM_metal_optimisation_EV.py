@@ -26,13 +26,7 @@ import cyipopt as ipopt
 #opt.options['max_iter'] = 10000  # define maximum number of optimization iterations
 
 opt = SolverFactory('cplex')
-opt.options['qpmethod'] = 2  # Set to 1 for the primal simplex method (default).
-# Define mipgap, as relative difference to optimal solution
-opt.options['mip_tolerances_mipgap'] = 0.05  # Écart relatif de 5 %
-opt.options['optimality'] = 1
-# Adjust convergence parameters
-opt.options['barrier convergetol'] = 1e-2  # Set barrier feasibility tolerance
-# Where to put cplex results
+opt.options['qpmethod'] = 1  # Set to 1 for the primal simplex method (default).
 
 class IAM_Metal_Optimisation_EV :
     '''
@@ -729,21 +723,21 @@ class IAM_Metal_Optimisation_EV :
                         MI_Vehicle.loc[m][v] += self.MI_VehicleType.loc[m][v_agg]
             # Add metal intensities of vehicles by battery type
             for b in self.listBattery:
-                for v_agg in self.listVehicleType:
-                    if v_agg in v:
-                        if b in v:
+                if b in v:
+                    for v_agg in self.listVehicleType:
+                        if v_agg in v:
                             for m in self.MI_Battery.index:
                                 MI_Vehicle.loc[m][v] += self.MI_Battery.loc[m][b] * self.Vehicle_stat.loc['Battery'][v_agg]
             # Add metal intensities of vehicles by motor type
             for mo in self.listMotor:
-                for v_agg in self.listVehicleType:
-                    if v_agg in v:
-                        if mo in v:
+                if mo in v:
+                    for v_agg in self.listVehicleType:
+                        if v_agg in v:
                             for m in self.MI_Motor.index:
                                 MI_Vehicle.loc[m][v] += self.MI_Motor.loc[m][mo]
         self.MI_Vehicle = MI_Vehicle
 
-        # Metal intensity in g of metal per vehicle type, with agregated battery type
+        # Metal intensity in g of metal per vehicle type, with aggregated battery type
         MI_VehicleAgg = pd.DataFrame(0.0, columns=self.listVehicleAgg, index=self.listMetals)
 
         for v in self.listVehicleAgg:
@@ -754,17 +748,17 @@ class IAM_Metal_Optimisation_EV :
                         MI_VehicleAgg.loc[m][v] += self.MI_VehicleType.loc[m][v_agg]
             # Add metal intensities of vehicles by battery type
             for b in self.listBatteryAgg:
-                for v_agg in self.listVehicleType:
-                    if v_agg in v:
-                        if b in v:
+                if b in v:
+                    for v_agg in self.listVehicleType:
+                        if v_agg in v:
                             for m in self.MI_BatteryAgg.index:
                                 MI_VehicleAgg.loc[m][v] += self.MI_BatteryAgg.loc[m][b] * self.Vehicle_stat.loc['Battery'][
                                     v_agg]
             # Add metal intensities of vehicles by motor type
             for mo in self.listMotor:
-                for v_agg in self.listVehicleType:
-                    if v_agg in v:
-                        if mo in v:
+                if mo in v:
+                    for v_agg in self.listVehicleType:
+                        if v_agg in v:
                             for m in self.MI_Motor.index:
                                 MI_VehicleAgg.loc[m][v] += self.MI_Motor.loc[m][mo]
         self.MI_VehicleAgg = MI_VehicleAgg
@@ -912,7 +906,7 @@ class IAM_Metal_Optimisation_EV :
         # Declaration of the relaxation variable in case the initial techno mix has a decrease for some technoRen
         self.model.CoherentMix_relax = Var(self.listRegions, self.listTechno_Ren, self.listDecades, initialize=0, within=NonNegativeReals)
 
-        #self.model.Stock_relax = Var(self.listVehicleType, self.listYearsVehicle, initialize=0, within=Reals)
+        self.model.Stock_relax = Var(self.listVehicleType, self.listYearsVehicle, initialize=0, within=Reals)
 
     def modelObj(self):
         '''
@@ -933,11 +927,8 @@ class IAM_Metal_Optimisation_EV :
             + sum(self.M * (self.model.Res_relax[m] / self.MetalData[self.ResLimit].loc[m]) for m in self.listMetals_knownRes)
             + sum(self.M * (self.model.Mining_relax[m, d] / self.Prod[d].loc[m]) for m in self.listMetals for d in self.listDecades)
             + sum(self.M * (self.model.CoherentMix_relax[r, t_r, d]) for r in self.listRegions for t_r in self.listTechno_Ren for d in self.listDecades)
-            #+ sum(self.M * (self.model.Stock_relax[vT, y]) ** 2 for vT in self.listVehicleType for y in self.listYearsVehicle)
+            + sum(self.M * (self.model.Stock_relax[vT, y]) ** 2 for vT in self.listVehicleType for y in self.listYearsVehicle)
             , sense=minimize)
-
-
-
 
     def CstrEnergyDemand(self):
         '''
@@ -966,7 +957,7 @@ class IAM_Metal_Optimisation_EV :
         for y in range(1, len(self.listYearsTot)):
             for vT in self.listVehicleType:
                 self.model.ConstraintVehicleGrowth.add(self.model.x_growth[vT, self.listYearsTot[y]]
-                                                  == (self.Vehicle_Stock[self.listYearsTot[y]] - self.Vehicle_Stock[
+                                                       == (self.Vehicle_Stock[self.listYearsTot[y]] - self.Vehicle_Stock[
                     self.listYearsTot[y - 1]])
                                                   * self.MS_Vehicle_Type.loc[(self.MS_Vehicle_Type["drive_train"] == vT) & (
                             self.MS_Vehicle_Type["year"] == self.listYearsTot[y]), "value"].values[0]
@@ -984,8 +975,17 @@ class IAM_Metal_Optimisation_EV :
                 self.model.ConstraintVehicleSold.add(
                     sum(self.model.x[v, self.listYearsVehicle[y]] for v in self.listVehicle if vT in v)
                     #+ self.model.Stock_relax[vT, self.listYearsVehicle[y]]
-                    >= self.model.x_growth[vT, self.listYearsVehicle[y]] + self.model.x_maintain[vT, self.listYearsVehicle[y]]
+                    == self.model.x_growth[vT, self.listYearsVehicle[y]] + self.model.x_maintain[vT, self.listYearsVehicle[y]]
                     )
+
+        self.model.ConstraintVehicleSoldInit = ConstraintList()
+        for y in range(3, len(self.listYearsVehicle)):
+            for vT in self.listVehicleType:
+                self.model.ConstraintVehicleSoldInit.add(sum(self.model.x[v, self.listYearsVehicle[y]] for v in self.listVehicle if vT in v)
+                                                    + self.model.Stock_relax[vT, self.listYearsVehicle[y]]
+                                                    == sum(
+                    self.x0.loc[v, self.listYearsVehicle[y]] for v in self.listVehicleAgg if vT in v)
+                                                    )
         # model.ConstraintVehicleSold.pprint()
 
 
@@ -1165,7 +1165,7 @@ class IAM_Metal_Optimisation_EV :
                 Relax_Var_Mining.loc[m, y] = self.model.Mining_relax.get_values()[(m, y)]
         self.Relax_Var_Mining = Relax_Var_Mining
 
-        '''
+
         # Create an empty dataFrame to stock the variable
         Relax_Var_Stock = pd.DataFrame(index=self.listVehicleType, columns=self.listDecades)
         for vT in self.listVehicleType:
@@ -1173,7 +1173,7 @@ class IAM_Metal_Optimisation_EV :
                 # Stock the variable for the consumption of each metals by year in 2050 in a dataFrame
                 Relax_Var_Stock.loc[vT, y] = self.model.Stock_relax.get_values()[(vT, y)]
         self.Relax_Var_Stock = Relax_Var_Stock
-        '''
+
 
         # Save the Relaxation variables and the Objective result
         # Generate the full path for the Excel file for this scenario and model
@@ -1185,7 +1185,7 @@ class IAM_Metal_Optimisation_EV :
         excel = pd.ExcelWriter(excel_path)
         self.Relax_Var_Res.to_excel(excel, sheet_name='RelVarRes')
         self.Relax_Var_Mining.to_excel(excel, sheet_name='RelVarMining')
-        #elf.Relax_Var_Stock.to_excel(excel, sheet_name='RelVarStock')
+        self.Relax_Var_Stock.to_excel(excel, sheet_name='RelVarStock')
         self.Obj.to_excel(excel, sheet_name='Obj')
         excel.close()
 

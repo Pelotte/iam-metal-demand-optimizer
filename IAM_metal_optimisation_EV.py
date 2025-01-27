@@ -912,7 +912,7 @@ class IAM_Metal_Optimisation_EV :
         # Declaration of the relaxation variable in case the initial techno mix has a decrease for some technoRen
         self.model.CoherentMix_relax = Var(self.listRegions, self.listTechno_Ren, self.listDecades, initialize=0, within=NonNegativeReals)
 
-        self.model.Stock_relax = Var(self.listVehicleType, self.listYearsVehicle, initialize=0, within=Reals)
+        #self.model.Stock_relax = Var(self.listVehicleType, self.listYearsVehicle, initialize=0, within=Reals)
 
     def modelObj(self):
         '''
@@ -933,7 +933,7 @@ class IAM_Metal_Optimisation_EV :
             + sum(self.M * (self.model.Res_relax[m] / self.MetalData[self.ResLimit].loc[m]) for m in self.listMetals_knownRes)
             + sum(self.M * (self.model.Mining_relax[m, d] / self.Prod[d].loc[m]) for m in self.listMetals for d in self.listDecades)
             + sum(self.M * (self.model.CoherentMix_relax[r, t_r, d]) for r in self.listRegions for t_r in self.listTechno_Ren for d in self.listDecades)
-            + sum(self.M * (self.model.Stock_relax[vT, y]) ** 2 for vT in self.listVehicleType for y in self.listYearsVehicle)
+            #+ sum(self.M * (self.model.Stock_relax[vT, y]) ** 2 for vT in self.listVehicleType for y in self.listYearsVehicle)
             , sense=minimize)
 
 
@@ -979,11 +979,11 @@ class IAM_Metal_Optimisation_EV :
                                                     == self.model.x_growth[vT, self.listYearsTot[y - self.Lifetime_V]])
 
         self.model.ConstraintVehicleSold = ConstraintList()
-        for y in range(0, len(self.listYearsVehicle)):
+        for y in range(3, len(self.listYearsVehicle)):
             for vT in self.listVehicleType:
                 self.model.ConstraintVehicleSold.add(
-                    sum(self.model.x[v, self.listYearsVehicle[y]] for v in self.listVehicle if vT in v) + self.model.Stock_relax[
-                        vT, self.listYearsVehicle[y]]
+                    sum(self.model.x[v, self.listYearsVehicle[y]] for v in self.listVehicle if vT in v)
+                    #+ self.model.Stock_relax[vT, self.listYearsVehicle[y]]
                     >= self.model.x_growth[vT, self.listYearsVehicle[y]] + self.model.x_maintain[vT, self.listYearsVehicle[y]]
                     )
         # model.ConstraintVehicleSold.pprint()
@@ -1001,7 +1001,7 @@ class IAM_Metal_Optimisation_EV :
         for V in self.listVehicleAgg:
             for y in self.listYearsVehicle[:3]:
                 self.model.constraintEVCoherence2020.add(sum(self.TechnoMatrixEV[v].loc[V] * self.model.x[v, y] for v in self.listVehicle)
-                                                    == self.x0.loc[V, y])
+                                                         == self.x0.loc[V, y])
 
         # Creation of a list of constraint to add coherence in the optimised technological mix of 2020
         self.model.constraintMixCoherence2020 = ConstraintList()
@@ -1165,6 +1165,16 @@ class IAM_Metal_Optimisation_EV :
                 Relax_Var_Mining.loc[m, y] = self.model.Mining_relax.get_values()[(m, y)]
         self.Relax_Var_Mining = Relax_Var_Mining
 
+        '''
+        # Create an empty dataFrame to stock the variable
+        Relax_Var_Stock = pd.DataFrame(index=self.listVehicleType, columns=self.listDecades)
+        for vT in self.listVehicleType:
+            for y in self.listDecades:
+                # Stock the variable for the consumption of each metals by year in 2050 in a dataFrame
+                Relax_Var_Stock.loc[vT, y] = self.model.Stock_relax.get_values()[(vT, y)]
+        self.Relax_Var_Stock = Relax_Var_Stock
+        '''
+
         # Save the Relaxation variables and the Objective result
         # Generate the full path for the Excel file for this scenario and model
         folderRelVar = self.Res_folder + '/Relax Var'
@@ -1175,6 +1185,7 @@ class IAM_Metal_Optimisation_EV :
         excel = pd.ExcelWriter(excel_path)
         self.Relax_Var_Res.to_excel(excel, sheet_name='RelVarRes')
         self.Relax_Var_Mining.to_excel(excel, sheet_name='RelVarMining')
+        #elf.Relax_Var_Stock.to_excel(excel, sheet_name='RelVarStock')
         self.Obj.to_excel(excel, sheet_name='Obj')
         excel.close()
 

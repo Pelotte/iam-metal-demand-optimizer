@@ -27,6 +27,11 @@ import cyipopt as ipopt
 
 opt = SolverFactory('cplex')
 opt.options['qpmethod'] = 1  # Set to 1 for the primal simplex method (default).
+# Define mipgap, as relative difference to optimal solution
+opt.options['mip_tolerances_mipgap'] = 0.05  # Écart relatif de 5 %
+opt.options['optimality'] = 1
+# Adjust convergence parameters
+opt.options['barrier convergetol'] = 1e-2  # Set barrier feasibility tolerance
 
 class IAM_Metal_Optimisation_EV :
     '''
@@ -71,7 +76,7 @@ class IAM_Metal_Optimisation_EV :
         self.Lifetime_V = 12
 
         # Penalisation by M of the relaxation variable in the objective function
-        self.M = 10**6
+        self.M = 10**3
         # Folder path for results according to the modelisation type chosen
         self.Res_folder = self.result_path+ self.ModelisationType
 
@@ -423,16 +428,6 @@ class IAM_Metal_Optimisation_EV :
         if self.ModelisationType =='Init':
             self.listTechnoIAM = self.listTechno
 
-        # Replace in the initial scenario s0 the 0 power capacity by a very little value, to avoid the 0 division
-        for r in self.listRegions:
-            for t in self.listTechnoIAM:
-                for d in self.listDecades:
-                    # if the power capacity is 0
-                    if self.s0[r].loc[t, d] == 0:
-                        # replace it by a very little value, in comparison to the total capacity
-                        self.s0[r].loc[t, d] = 1
-
-
     def OTD(self):
         '''
         Calculate the demand in metal for the rest of the transition : electric vehicle, grid, storage
@@ -583,22 +578,6 @@ class IAM_Metal_Optimisation_EV :
                 # In million of vehicles, to match MI in g/vehicles
                 self.Vehicle_Stock[y] = Stock_MATILDA.loc[(Stock_MATILDA["Time"] == y), "value"].values[0] / 10 ** 6
 
-        # New installation of vehicles at the year y because of growth
-        Sales_Growth_Tot = pd.Series()
-        for y in range(1, len(self.listYearsTot)):
-            Sales_Growth_Tot[self.listYearsTot[y]] = (self.Vehicle_Stock[self.listYearsTot[y]]
-                                                      - self.Vehicle_Stock[self.listYearsTot[y - 1]])
-
-        # New installation of vehicles to maintain the stock
-        Sales_Maintain_Tot = pd.Series()
-        for y in range(13, len(self.listYearsTot)):
-            Sales_Maintain_Tot[self.listYearsTot[y]] = Sales_Growth_Tot[self.listYearsTot[y - self.Lifetime_V]]
-
-        # Total new installation of vehicles
-        Vehicle_Sales_Tot = pd.Series()
-        for y in Sales_Maintain_Tot.index:
-            Vehicle_Sales_Tot[y] = Sales_Growth_Tot[y] + Sales_Maintain_Tot[y]
-
         scenarioIEA_VE = str()
 
         # Scenario for MS of vehicles from IEA
@@ -614,27 +593,40 @@ class IAM_Metal_Optimisation_EV :
         # Change time values to string
         self.MS_Vehicle_Type['year'] = self.MS_Vehicle_Type['year'].astype(str)
 
+        # New installation of vehicles vT at the year y because of growth
+        VehicleType_Growth = pd.DataFrame(index=self.listVehicleType, columns=self.listYearsTot[1:])
+        for y in range(1, len(self.listYearsTot)):
+            for vT in self.listVehicleType:
+                # Take the maximum value between the additional stock and 0, if there is a decrease in stock
+                VehicleType_Growth.loc[vT, self.listYearsTot[y]] = max(self.Vehicle_Stock[self.listYearsTot[y]] * self.MS_Vehicle_Type.loc[
+                    (self.MS_Vehicle_Type["drive_train"] == vT) & (
+                                self.MS_Vehicle_Type["year"] == self.listYearsTot[y]), "value"].values[0]
+                                                                  - (self.Vehicle_Stock[self.listYearsTot[y - 1]] *
+                                                                     self.MS_Vehicle_Type.loc[
+                                                                         (self.MS_Vehicle_Type["drive_train"] == vT) & (
+                                                                                     self.MS_Vehicle_Type["year"] ==
+                                                                                     self.listYearsTot[
+                                                                                         y - 1]), "value"].values[0])
+                                                                  , 0)
+        self.VehicleType_Growth = VehicleType_Growth
 
-        # Years from 2018 to 2050
-        self.listYearsVehicle = Vehicle_Sales_Tot.index
+        # New installation of vehicles to maintain the stock
+        VehicleType_Maintain = pd.DataFrame(index=self.listVehicleType, columns=self.listYearsTot[13:])
+        for y in range(13, len(self.listYearsTot)):
+            for vT in self.listVehicleType:
+                VehicleType_Maintain.loc[vT, self.listYearsTot[y]] = self.VehicleType_Growth.loc[vT, self.listYearsTot[y - self.Lifetime_V]]
 
         # Create the dataFrame for sales of vehicles by vehicle type by year, from 2018 to 2050
-        VehicleType_Sales = pd.DataFrame(index=self.listVehicleType, columns=self.listYearsVehicle)
+        VehicleType_Sales = pd.DataFrame(index=self.listVehicleType, columns=self.listYearsTot[13:])
 
         for vT in self.listVehicleType:
-            for y in self.listYearsVehicle:
+            for y in self.listYearsTot[13:]:
                 # Stock of total vehicles at the year y * Market share by vehicle type v at the year y
-                VehicleType_Sales.loc[vT, y] = Vehicle_Sales_Tot[y] * self.MS_Vehicle_Type.loc[
-                    (self.MS_Vehicle_Type["drive_train"] == vT) & (self.MS_Vehicle_Type["year"] == y), "value"].values[0]
+                VehicleType_Sales.loc[vT, y] = self.VehicleType_Growth.loc[vT, y] + VehicleType_Maintain.loc[vT, y]
 
-        # Create the dataFrame for sales of vehicles for growth by vehicle type by year, from 2006 to 2050
-        self.VehicleType_Growth = pd.DataFrame(index=self.listVehicleType, columns=self.listYearsTot[1:])
 
-        for vT in self.listVehicleType:
-            for y in self.listYearsTot[1:]:
-                # Stock of total vehicles at the year y * Market share by vehicle type v at the year y
-                self.VehicleType_Growth.loc[vT, y] = Sales_Growth_Tot[y] * self.MS_Vehicle_Type.loc[
-                    (self.MS_Vehicle_Type["drive_train"] == vT) & (self.MS_Vehicle_Type["year"] == y), "value"].values[0]
+        # Years from 2018 to 2050
+        self.listYearsVehicle = self.listYearsTot[13:]
 
         # Scenario for MS of batteries from IRENA
         scenarioIRENA_battery = str()
@@ -681,8 +673,7 @@ class IAM_Metal_Optimisation_EV :
 
         # list of vehicles, with vehicle type, motor type, and aggregated battery types
         self.listVehicleAgg = Vehicle_Sales.index.tolist()
-        # Replace 0 values with a very small value (already initialized)
-        Vehicle_Sales.replace(0.0, 10 ** -15, inplace=True)
+
         # Create x0, the initial scenario for EV - motor - battery demand
         self.x0 = Vehicle_Sales
 
@@ -906,28 +897,30 @@ class IAM_Metal_Optimisation_EV :
         # Declaration of the relaxation variable in case the initial techno mix has a decrease for some technoRen
         self.model.CoherentMix_relax = Var(self.listRegions, self.listTechno_Ren, self.listDecades, initialize=0, within=NonNegativeReals)
 
-        self.model.Stock_relax = Var(self.listVehicleType, self.listYearsVehicle, initialize=0, within=Reals)
+        #self.model.Stock_relax = Var(self.listVehicleType, self.listYearsVehicle, initialize=0, within=Reals)
 
     def modelObj(self):
         '''
         Objective of the optimisation model : to minimize the difference with IAM scenario
         '''
 
+        epsilon = 1e-6
+
         self.model.objective = Objective(
             expr=
             sum(((((sum(self.TechnoMatrix[t].loc[T] * self.model.s[r,t,d] for t in self.listTechno))
-                   -self.s0[r].loc[T][d])/self.s0[r].loc[T][d])**2)
+                   -self.s0[r].loc[T][d])/(self.s0[r].loc[T][d]+epsilon))**2)
                 for r in self.listRegions for T in self.listTechnoAgg for d in self.listDecades)
 
 
             + sum((((sum(self.TechnoMatrixEV[v].loc[V] * self.model.x[v, d] for v in self.listVehicle)
-                     - self.x0.loc[V, d]) / self.x0.loc[V, d]) ** 2)
+                     - self.x0.loc[V, d]) / (self.x0.loc[V, d]+epsilon)) ** 2)
                   for V in self.listVehicleAgg for d in self.listDecades)
 
             + sum(self.M * (self.model.Res_relax[m] / self.MetalData[self.ResLimit].loc[m]) for m in self.listMetals_knownRes)
             + sum(self.M * (self.model.Mining_relax[m, d] / self.Prod[d].loc[m]) for m in self.listMetals for d in self.listDecades)
             + sum(self.M * (self.model.CoherentMix_relax[r, t_r, d]) for r in self.listRegions for t_r in self.listTechno_Ren for d in self.listDecades)
-            + sum(self.M * (self.model.Stock_relax[vT, y]) ** 2 for vT in self.listVehicleType for y in self.listYearsVehicle)
+            #+ sum(self.M * (self.model.Stock_relax[vT, y]) ** 2 for vT in self.listVehicleType for y in self.listYearsVehicle)
             , sense=minimize)
 
     def CstrEnergyDemand(self):
@@ -954,39 +947,24 @@ class IAM_Metal_Optimisation_EV :
         '''
 
         self.model.ConstraintVehicleGrowth = ConstraintList()
-        for y in range(1, len(self.listYearsTot)):
+        for y in self.listYearsTot[1:]:
             for vT in self.listVehicleType:
-                self.model.ConstraintVehicleGrowth.add(self.model.x_growth[vT, self.listYearsTot[y]]
-                                                       == (self.Vehicle_Stock[self.listYearsTot[y]] - self.Vehicle_Stock[
-                    self.listYearsTot[y - 1]])
-                                                  * self.MS_Vehicle_Type.loc[(self.MS_Vehicle_Type["drive_train"] == vT) & (
-                            self.MS_Vehicle_Type["year"] == self.listYearsTot[y]), "value"].values[0]
-                                                  )
+                self.model.ConstraintVehicleGrowth.add(self.model.x_growth[vT, y] == self.VehicleType_Growth.loc[vT, y])
 
         self.model.ConstraintVehicleMaintain = ConstraintList()
         for y in range(1 + self.Lifetime_V, len(self.listYearsTot)):
             for vT in self.listVehicleType:
                 self.model.ConstraintVehicleMaintain.add(self.model.x_maintain[vT, self.listYearsTot[y]]
-                                                    == self.model.x_growth[vT, self.listYearsTot[y - self.Lifetime_V]])
+                                                         == self.model.x_growth[vT, self.listYearsTot[y - self.Lifetime_V]])
 
         self.model.ConstraintVehicleSold = ConstraintList()
         for y in range(3, len(self.listYearsVehicle)):
             for vT in self.listVehicleType:
                 self.model.ConstraintVehicleSold.add(
                     sum(self.model.x[v, self.listYearsVehicle[y]] for v in self.listVehicle if vT in v)
-                    #+ self.model.Stock_relax[vT, self.listYearsVehicle[y]]
-                    == self.model.x_growth[vT, self.listYearsVehicle[y]] + self.model.x_maintain[vT, self.listYearsVehicle[y]]
+                    == self.model.x_growth[vT, self.listYearsVehicle[y]]
+                    + self.model.x_maintain[vT, self.listYearsVehicle[y]]
                     )
-
-        self.model.ConstraintVehicleSoldInit = ConstraintList()
-        for y in range(3, len(self.listYearsVehicle)):
-            for vT in self.listVehicleType:
-                self.model.ConstraintVehicleSoldInit.add(sum(self.model.x[v, self.listYearsVehicle[y]] for v in self.listVehicle if vT in v)
-                                                    + self.model.Stock_relax[vT, self.listYearsVehicle[y]]
-                                                    == sum(
-                    self.x0.loc[v, self.listYearsVehicle[y]] for v in self.listVehicleAgg if vT in v)
-                                                    )
-        # model.ConstraintVehicleSold.pprint()
 
 
     def CstrTechnoCoherence(self):
@@ -1045,9 +1023,10 @@ class IAM_Metal_Optimisation_EV :
                                           *((self.MetalIntensity_doc[self.listDecades[d]][t].loc[m]+self.MetalIntensity_doc[self.listDecades[d-1]][t].loc[m])/2)
                                           /self.MetalData['RR (%) Res'].loc[m] for t in self.listTechno_Ren for r in self.listRegions for d in range(1, len(self.listDecades)))
                                                       # Metal demand to create the vehicle stock with recycling between 2020 and 2030
-                                                      + sum(sum(self.model.x[v, self.listYearsVehicle[y]]* self.MI_Vehicle.loc[m][v] for v in self.listVehicle)
-                                         - self.VehicleType_Growth.loc['ICEV', self.listYearsTot[y + 1]] * 80 / 100 * self.MI_Vehicle.loc[m]['ICEV']
-                                         for y in range(2, 12))
+                                                      + sum(
+                sum(self.model.x[v, self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m][v] for v in self.listVehicle)
+                - self.model.x_growth['ICEV', self.listYearsTot[y + 1]] * 80 / 100 * self.MI_Vehicle.loc[m]['ICEV'] for y in
+                range(2, 12))
                                                       # Metal demand to create the vehicle stock with recycling between 2030 and 2040
                                                       + sum(
                 (self.model.x[v, self.listYearsVehicle[y]] - self.model.x[v, self.listYearsTot[y + 1]] * 80 / 100) * self.MI_Vehicle.loc[m][v] /
@@ -1165,7 +1144,7 @@ class IAM_Metal_Optimisation_EV :
                 Relax_Var_Mining.loc[m, y] = self.model.Mining_relax.get_values()[(m, y)]
         self.Relax_Var_Mining = Relax_Var_Mining
 
-
+        '''
         # Create an empty dataFrame to stock the variable
         Relax_Var_Stock = pd.DataFrame(index=self.listVehicleType, columns=self.listDecades)
         for vT in self.listVehicleType:
@@ -1173,7 +1152,7 @@ class IAM_Metal_Optimisation_EV :
                 # Stock the variable for the consumption of each metals by year in 2050 in a dataFrame
                 Relax_Var_Stock.loc[vT, y] = self.model.Stock_relax.get_values()[(vT, y)]
         self.Relax_Var_Stock = Relax_Var_Stock
-
+        '''
 
         # Save the Relaxation variables and the Objective result
         # Generate the full path for the Excel file for this scenario and model
@@ -1185,7 +1164,7 @@ class IAM_Metal_Optimisation_EV :
         excel = pd.ExcelWriter(excel_path)
         self.Relax_Var_Res.to_excel(excel, sheet_name='RelVarRes')
         self.Relax_Var_Mining.to_excel(excel, sheet_name='RelVarMining')
-        self.Relax_Var_Stock.to_excel(excel, sheet_name='RelVarStock')
+        #self.Relax_Var_Stock.to_excel(excel, sheet_name='RelVarStock')
         self.Obj.to_excel(excel, sheet_name='Obj')
         excel.close()
 

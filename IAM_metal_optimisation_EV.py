@@ -161,10 +161,7 @@ class IAM_Metal_Optimisation_EV :
         self.Matrix_CF_disag = Matrix_CF_Init_disag.sort_values(by='Techno ') # Rearrange matrix in the alphabetic order of technologies
 
         # Import metal consumption by decade for EV, storage in [t/decade] (from IEA)
-        self.OTDdec = pd.read_excel(self.folder_path + 'IEA_ByDecade_Demand_Metal.xlsx')
-
-        # Import metal consumption by year for EV, storage in [t/decade] (from IEA)
-        self.OTDyear = pd.read_excel(self.folder_path + 'IEA_ByYear_Demand_Metal.xlsx')
+        self.OTD = pd.read_excel(self.folder_path + 'Demand_Storage&Network_IEA.xlsx')
 
         # Tab of future metal production according to different scenarios from 2020 to 2050 [t/yr]
         #self.Prod = pd.read_excel(self.folder_path + 'Future metal prod.xlsx', index_col=0)
@@ -177,7 +174,6 @@ class IAM_Metal_Optimisation_EV :
 
         # Import the matrix of correspondence between Techno and Techno Init
         self.TechnoMatrix = pd.read_excel(self.folder_path + 'Techno Matrix.xlsx', index_col=0)
-
 
         # Import the matrix of correspondence between TechnoEV agg and Techno EV disag
         self.TechnoMatrixEV = pd.read_excel(self.folder_path + 'Techno Matrix.xlsx', sheet_name='Techno matrix EV', index_col=0)
@@ -205,7 +201,7 @@ class IAM_Metal_Optimisation_EV :
                                      index_col=0)
 
     # Calculate Metal Intensity (MI) evolution in time
-    def MI(self):
+    def Power_Metal_Intensity(self):
         '''
         Calculation of the evolution of the metal intensity of energy sources technology, according
         to the scenario SSP chosen.
@@ -267,7 +263,7 @@ class IAM_Metal_Optimisation_EV :
         # in [t/GW] with reduction in time according to ssp
         self.MetalIntensity_doc = MetalIntensity_doc
 
-    def CF(self):
+    def Power_Charging_Factor(self):
         '''
         Calculate Charging Factor (CF) by sub-technology, based on initial IAM CF
         '''
@@ -355,7 +351,7 @@ class IAM_Metal_Optimisation_EV :
         # Final regionalized CF for the disaggregated sub-technologies
         self.CF_disag = CF_disag
 
-    def IAM_power(self):
+    def Power_Capacities(self):
         '''
         Collect and disaggregate initial IAM power capacity
         '''
@@ -428,7 +424,7 @@ class IAM_Metal_Optimisation_EV :
         if self.ModelisationType =='Init':
             self.listTechnoIAM = self.listTechno
 
-    def OTD(self):
+    def Demand_Network_Storage(self):
         '''
         Calculate the demand in metal for the rest of the transition : electric vehicle, grid, storage
         Based on different International Energy Agency (IEA) scenarios
@@ -448,44 +444,11 @@ class IAM_Metal_Optimisation_EV :
             scenarioIEA = 'SPS'
             self.scenarioIEA = scenarioIEA
 
-        # Select only the data of the scenario studied, thanks to the column scenario
-        self.OTDdec = self.OTDdec[self.OTDdec["Scenario"] == scenarioIEA]
-        # Drop the columns for technology and scenario, to only have the metal information
-        self.OTDdec = self.OTDdec.drop(columns=['Technology', 'Scenario', 'Metal'])
-        # Group IEA data by metals
-        self.OTDdec = self.OTDdec.groupby('Metal [t/decade]')
-        # Sum for every IEA studied technology, by year, for each metal
-        self.OTDdec = self.OTDdec.sum()
 
-        self.OTDd = pd.DataFrame(index=self.listMetals, columns=self.listDecades)
 
-        for d in self.listDecades:
-            for m in self.listMetals:
-                if m in self.OTDdec.index:
-                    self.OTDd[d].loc[m] = self.OTDdec[d].loc[m]
-                else:
-                    self.OTDd[d].loc[m] = 0
 
-        # Importation of IEA data, in t/decade, non cumulated
-        self.OTDyear = pd.read_excel(self.folder_path + 'IEA_ByYear_Demand_Metal.xlsx')
-        # Select only the data of the scenario studied, thanks to the column scenario
-        self.OTDyear = self.OTDyear[self.OTDyear["Scenario"] == scenarioIEA]
-        # Drop the columns for technology and scenario, to only have the metal information
-        self.OTDyear = self.OTDyear.drop(columns=['Technology [t/yr]', 'Detail', 'Scenario'])
-        # Group IEA data by metals
-        self.OTDyear = self.OTDyear.groupby('Metal')
-        # Sum for every IEA studied technology, by year, for each metal
-        self.OTDyear = self.OTDyear.sum()
-        self.OTDy = pd.DataFrame(index=self.listMetals, columns=self.listDecades)
 
-        for d in self.listDecades:
-            for m in self.listMetals:
-                if m in self.OTDyear.index:
-                    self.OTDy[d].loc[m] = self.OTDyear[d].loc[m]
-                else:
-                    self.OTDy[d].loc[m] = 0
-
-    def FutureProd(self):
+    def Future_Production(self):
 
         '''
         Estimation of future metal production in tons by year, until 2050
@@ -528,7 +491,7 @@ class IAM_Metal_Optimisation_EV :
 
         self.Prod = Prod
 
-    def EV_MS(self):
+    def EV_Market_Share(self):
 
         # list Years from 2005 to 2050 with a step of 5
         self.listYearsTot = [str(year) for year in range(2005, 2051, 1)]
@@ -739,7 +702,7 @@ class IAM_Metal_Optimisation_EV :
                     listVehicleDisag.append(f"{v}_Ind_{b}")
         self.listVehicleDisag = listVehicleDisag
 
-    def MI_EV(self):
+    def EV_Metal_Intensity(self):
 
         # Initial scenario uses aggregated battery data
         if self.ModelisationType == 'Init':
@@ -804,7 +767,7 @@ class IAM_Metal_Optimisation_EV :
                                 MI_VehicleAgg.loc[m][v] += self.MI_Motor.loc[m][mo]
         self.MI_VehicleAgg = MI_VehicleAgg
 
-    def OSD(self):
+    def Demand_Other_Sectors(self):
         '''
         Estimation of the metal demand of the rest of the economy
         Based on literature and Gross Domestic Product (GDP) growth from IAM and SSP-RCP
@@ -1078,7 +1041,7 @@ class IAM_Metal_Optimisation_EV :
 
                                                       + sum(self.OTDd.loc[m][d] / self.MetalData['RR (%) Res'].loc[m]
                                                             for d in self.listDecades)
-                                                      + self.OSD['2020'].loc[m] + sum(
+                                                      + sum(
                 (self.OSD[self.listDecades[d]].loc[m] + self.OSD[self.listDecades[d - 1]].loc[m]) * 10 / 2 for d in
                 range(1, len(self.listDecades)))
                                                       - self.model.Res_relax[m]

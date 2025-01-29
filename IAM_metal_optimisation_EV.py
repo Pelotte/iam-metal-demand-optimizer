@@ -161,7 +161,7 @@ class IAM_Metal_Optimisation_EV :
         self.Matrix_CF_disag = Matrix_CF_Init_disag.sort_values(by='Techno ') # Rearrange matrix in the alphabetic order of technologies
 
         # Import metal consumption by decade for EV, storage in [t/decade] (from IEA)
-        self.OTD = pd.read_excel(self.folder_path + 'Demand_Storage&Network_IEA.xlsx')
+        self.OTD_init = pd.read_excel(self.folder_path + 'Demand_Storage&Network_IEA.xlsx')
 
         # Tab of future metal production according to different scenarios from 2020 to 2050 [t/yr]
         #self.Prod = pd.read_excel(self.folder_path + 'Future metal prod.xlsx', index_col=0)
@@ -444,9 +444,34 @@ class IAM_Metal_Optimisation_EV :
             scenarioIEA = 'SPS'
             self.scenarioIEA = scenarioIEA
 
+        # Select only the data of the scenario studied, thanks to the column scenario
+        self.OTD_init = self.OTD_init[self.OTD_init["Scenario"] == scenarioIEA]
+        # Drop the columns for technology and scenario, to only have the metal information
+        self.OTD_init = self.OTD_init.drop(columns=['Technology [t/yr]', 'Scenario'])
+        # Group IEA data by metals
+        self.OTD_init = self.OTD_init.groupby('Metal')
+        # Sum for every IEA studied technology, by year, for each metal
+        self.OTD_init = self.OTD_init.sum()
+        # Add missing years to the initial dataFrame
+        all_years = np.arange(2020, 2051)
+        self.OTD_init = self.OTD_init.reindex(columns=all_years)
+        # Linear Interpolation to fill intermediate years
+        for m in self.OTD_init.index:
+            self.OTD_init.loc[m] = self.OTD_init.loc[m].interpolate(method='linear')
+        # Linear extrapolation for 2020 and 2021
+        self.OTD_init[2020] = 2 * self.OTD_init[2022] - self.OTD_init[2025]
+        self.OTD_init[2021] = (self.OTD_init[2022] + self.OTD_init[2020]) / 2  # Mean value
+        # Change columns as strings
+        self.OTD_init.columns = self.OTD_init.columns.astype(str)
 
-
-
+        # Create the final OTD dataFrame
+        self.OTD = pd.DataFrame(index=self.listMetals, columns=self.listYears)  
+        for y in self.listYears:
+            for m in self.listMetals:
+                if m in self.OTD_init.index:
+                    self.OTD[y].loc[m] = self.OTD_init[y].loc[m]
+                else:
+                    self.OTD[y].loc[m] = 0
 
     def Future_Production(self):
 
@@ -810,7 +835,7 @@ class IAM_Metal_Optimisation_EV :
         # Initialise the datas from 2020 with actual known metal prod in 2020 - metal demand for the transition [t/y]
         for m in self.listMetals:
             # Total prod in 2020 - Metal for grid and storage - Metal for powCap installation in 2020 - Metal for EV
-            InitialOSD = ((self.Prod['2020'].loc[m] - self.OTDy['2020'].loc[m] / self.MetalData['RR (%) Prod'].loc[m]
+            InitialOSD = ((self.Prod['2020'].loc[m] - self.OTD['2020'].loc[m] / self.MetalData['RR (%) Prod'].loc[m]
                           -self.PowerMetalDemand_y['2020'].loc[m] / self.MetalData['RR (%) Prod'].loc[m])
                           - sum(self.x0.loc[v, '2020'] * self.MI_VehicleAgg.loc[m][v] / self.MetalData['RR (%) Prod'].loc[m] for v in self.listVehicleAgg))
             # Change OSD value only if it is above 0, if not : = 0.
@@ -1039,8 +1064,8 @@ class IAM_Metal_Optimisation_EV :
                 (self.model.x[v, self.listYearsVehicle[y]] - self.model.x[v, self.listYearsTot[y + 1]] * 80 / 100) * self.MI_Vehicle.loc[m][v] /
                 self.MetalData['RR (%) Res'].loc[m] for v in self.listVehicle for y in range(12, len(self.listYearsVehicle)))
 
-                                                      + sum(self.OTDd.loc[m][d] / self.MetalData['RR (%) Res'].loc[m]
-                                                            for d in self.listDecades)
+                                                      + sum(self.OTD.loc[m][y] / self.MetalData['RR (%) Res'].loc[m]
+                                                            for y in self.listYears)
                                                       + sum(
                 (self.OSD[self.listDecades[d]].loc[m] + self.OSD[self.listDecades[d - 1]].loc[m]) * 10 / 2 for d in
                 range(1, len(self.listDecades)))
@@ -1071,11 +1096,11 @@ class IAM_Metal_Optimisation_EV :
                                                              self.MetalData['RR (%) Prod'].loc[m] for v in self.listVehicle)
                                                        <= max(
                     self.Prod[self.listDecades[d]].loc[m]  # Production at the year of the decade
-                    - self.OTDy[self.listDecades[d]].loc[m] / self.MetalData['RR (%) Prod'].loc[
+                    - self.OTD[self.listDecades[d]].loc[m] / self.MetalData['RR (%) Prod'].loc[
                         m]  # Metals needed for EV, electric grid, storage, according to IEA
                     - self.OSD[self.listDecades[d]].loc[m], self.Alpha / 100 * (
                                 self.OSD[self.listDecades[d]].loc[m]/ self.MetalData['RR (%) Prod'].loc[
-                        m] + self.OTDy[self.listDecades[d]].loc[m]))
+                        m] + self.OTD[self.listDecades[d]].loc[m]))
                                                        + self.model.Mining_relax[
                                                            m, self.listDecades[d]])  # Relaxation variable
         '''
@@ -1119,12 +1144,12 @@ class IAM_Metal_Optimisation_EV :
         def max_production(m, d):
             return max(
                 self.Prod[self.listDecades[d]].loc[m]
-                - self.OTDy[self.listDecades[d]].loc[m] / self.MetalData['RR (%) Prod'].loc[m]
+                - self.OTD[self.listDecades[d]].loc[m] / self.MetalData['RR (%) Prod'].loc[m]
                 - self.OSD[self.listDecades[d]].loc[m],
                 self.Alpha / 100
                 * (
                         self.OSD[self.listDecades[d]].loc[m]
-                        + self.OTDy[self.listDecades[d]].loc[m] / self.MetalData['RR (%) Prod'].loc[m]
+                        + self.OTD[self.listDecades[d]].loc[m] / self.MetalData['RR (%) Prod'].loc[m]
                 ),
             )
 
@@ -1300,7 +1325,7 @@ class IAM_Metal_Optimisation_EV :
                                        for v in self.listVehicle for y in range(12, len(self.listYearsVehicle))))
 
             OtherTransitionDemand[m] = sum(
-                self.OTDd.loc[m][d] / self.MetalData['RR (%) Res'].loc[m] for d in self.listDecades)
+                self.OTD.loc[m][y] / self.MetalData['RR (%) Res'].loc[m] for y in self.listYears)
             OtherSectorDemand[m] = + self.OSD['2020'].loc[m] + sum(
                 (self.OSD[self.listDecades[d]].loc[m] + self.OSD[self.listDecades[d - 1]].loc[m]) * 10 / 2 for d in
                 range(1, len(self.listDecades)))
@@ -1354,7 +1379,7 @@ class IAM_Metal_Optimisation_EV :
                 DemandByYear_df[m].loc['Energy Sector Demand'] = EnergySectorDemandy.loc[m] / \
                                                                    self.MetalData['RR (%) Prod'].loc[m]
                 DemandByYear_df[m].loc['Other Sector Demand' ] = self.OSD.loc[m]
-                DemandByYear_df[m].loc['Other Transition Demand'] = self.OTDy.loc[m] / \
+                DemandByYear_df[m].loc['Other Transition Demand'] = self.OTD.loc[m] / \
                                                                   self.MetalData['RR (%) Prod'].loc[m]
                 DemandByYear_df[m].loc['EV Sector Demand'] = self.EVSectorDemand.loc[m]
         self.DemandByYear_df = DemandByYear_df
@@ -1462,25 +1487,15 @@ class IAM_Metal_Optimisation_EV :
         excel.close()
 
 
-        # Save OTDy
+        # Save OTD
         # Generate the full path for the Excel file for this scenario and model
-        OTDy_Folder = Res_Folder_BroaderEconomy + '/OTDy'
-        if not os.path.exists(OTDy_Folder):
-            os.makedirs(OTDy_Folder)
-        excel_path = OTDy_Folder + '/OTDy_' + self.model_s0 + '_' + self.scenario + '.xlsx'
+        OTD_Folder = Res_Folder_BroaderEconomy + '/OTD'
+        if not os.path.exists(OTD_Folder):
+            os.makedirs(OTD_Folder)
+        excel_path = OTD_Folder + '/OTD_' + self.model_s0 + '_' + self.scenario + '.xlsx'
         # Create the Excel file and write the data
         excel = pd.ExcelWriter(excel_path)
-        self.OTDy.to_excel(excel, sheet_name='OTDy')
-        excel.close()
-
-        # Save OTDy
-        OTDd_Folder = Res_Folder_BroaderEconomy + '/OTDd'
-        if not os.path.exists(OTDd_Folder):
-            os.makedirs(OTDd_Folder)
-        excel_path = OTDd_Folder + '/OTDd_' + self.model_s0 + '_' + self.scenario + '.xlsx'
-        # Create the Excel file and write the data
-        excel = pd.ExcelWriter(excel_path)
-        self.OTDd.to_excel(excel, sheet_name='OTDd')
+        self.OTD.to_excel(excel, sheet_name='OTD')
         excel.close()
 
     def SaveEffortBySociety(self):
@@ -1500,7 +1515,7 @@ class IAM_Metal_Optimisation_EV :
             for m in self.listMetals:
                 for d in self.listDecades[1:]:
                     # If total metal demand is under the estimated production
-                    if (self.Prod[d].loc[m] - self.OTDy[d].loc[m] / self.MetalData['RR (%) Prod'].loc[m] - self.OSD[d].loc[m]) >= (
+                    if (self.Prod[d].loc[m] - self.OTD[d].loc[m] / self.MetalData['RR (%) Prod'].loc[m] - self.OSD[d].loc[m]) >= (
                             self.Alpha / 100 * self.OSD[d].loc[m]):
                         ConstraintDemandByYear[d].loc[m] = 'Prod'
                     # If there is a need for an effort from society

@@ -1004,15 +1004,6 @@ class IAM_Metal_Optimisation_EV :
                                                              for v in self.listVehicle)
                                                          == self.x0.loc[V, y])
 
-        # Creation of a list of constraint to avoid important change in the EV mix between following years
-        self.model.constraintEVCoherence = ConstraintList()
-        # Can add only 20% more than already installed types of vehicles, except for ICEV
-        for v in self.listVehicle[1:]:
-            for y in range(4, len(self.listYearsVehicle)):
-                self.model.constraintEVCoherence.add(
-                    self.model.x[v, self.listYearsVehicle[y]] - self.model.x[v, self.listYearsVehicle[y - 1]]
-                    <= self.VehicleType_Growth[self.listYearsVehicle[y]].sum()*20/100)
-
         # Creation of a list of constraint to add coherence in the optimised technological mix of 2020
         self.model.constraintMixCoherence2020 = ConstraintList()
         # The initial technological mix of 2020 cannot be changed
@@ -1120,12 +1111,16 @@ class IAM_Metal_Optimisation_EV :
             if d == 1:
                 return sum(
                     (
-                            sum(self.model.x[v, self.listYearsTot[5 + i + 10 * d]] for i in self.list_i) / 10
-                            - self.model.x[v, self.listYearsVehicle[(d - 1) * 10]] * 80 / 100
-                    ) * self.MI_Vehicle.loc[m][v]
+                        sum(
+                            self.model.x[v, self.listYearsTot[5 + i + 10 * d]] * self.MI_Vehicle.loc[m, v]
+                            for v in self.listVehicle
+                        )
+                        - self.model.x_growth['ICEV', self.listYearsTot[5 + i + 10 * d - self.Lifetime_V]]
+                        * self.MI_Vehicle.loc[m, 'ICEV'] * 0.8
+                    )
                     / self.MetalData['RR (%) Prod'].loc[m]
-                    for v in self.listVehicle
-                )
+                    for i in self.list_i
+                ) / 10
             else:
                 return sum(
                     (

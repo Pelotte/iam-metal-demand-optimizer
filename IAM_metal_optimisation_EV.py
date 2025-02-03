@@ -118,6 +118,8 @@ class IAM_Metal_Optimisation_EV :
         listYears = [str(year) for year in range(int(self.listDecades[0]), int(self.listDecades[-1]) + 1)]
         self.listYears = listYears
 
+        self.list_i = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
         # List of the decades with an additional past one (ex : from 2020, add 2010)
         listDecadeswPast = self.listDecades.copy()
         listDecadeswPast.insert(0, str(int(self.listDecades[0]) - 10))
@@ -199,6 +201,13 @@ class IAM_Metal_Optimisation_EV :
         # Import statistics on vehicles : kWh of battery by vehicle type, kW of motor by vehicle type
         self.Vehicle_stat = pd.read_excel(self.folder_path + 'Metal Intensity EV.xlsx', sheet_name='Vehicle caracteristics',
                                      index_col=0)
+
+        # Read initial recycling rates for EV metals
+        self.Initial_Recycling_Rate = pd.read_excel(self.folder_path + 'Recycling_EV.xlsx', index_col=0)
+
+        # Read scenario of evolution of recycling rates in time for EV metals
+        self.Recycling_Evolution = pd.read_excel(self.folder_path + 'Recycling_EV.xlsx', sheet_name='Recycling_Evolution',
+                                            index_col=0)
 
     # Calculate Metal Intensity (MI) evolution in time
     def Power_Metal_Intensity(self):
@@ -792,6 +801,49 @@ class IAM_Metal_Optimisation_EV :
                                 MI_VehicleAgg.loc[m][v] += self.MI_Motor.loc[m][mo]
         self.MI_VehicleAgg = MI_VehicleAgg
 
+    def EV_Recycling(self):
+        '''
+        Estimation of the recycling rates from 2020 to 2050 of metals used in electric vehicles,
+        according to the scenario SSP considered
+        '''
+
+        # DataFrame for recycling rates of metals used in EV
+        self.Recycling_Rate = pd.DataFrame(columns=self.listYearsVehicle[2:], index=self.listMetals)
+
+        # Add initial recycling rates for the 2020 year
+        for m in self.listMetals:
+            if m in self.Initial_Recycling_Rate.index:
+                self.Recycling_Rate['2020'].loc[m] = self.Initial_Recycling_Rate['Initial_Recycling_Rate'].loc[m]
+            else:
+                self.Recycling_Rate['2020'].loc[m] = 0.0
+
+        # Add the assumed recycling rate in 2050
+        if 'SSP4' in self.scenario or 'SSP5' in self.scenario:
+            for m in self.listMetals:
+                if m in self.Initial_Recycling_Rate.index:
+                    # Constant recycling rate
+                    self.Recycling_Rate['2050'].loc[m] = self.Initial_Recycling_Rate['Initial_Recycling_Rate'].loc[m]
+                else:
+                    self.Recycling_Rate['2050'].loc[m] = 0.0
+        else:
+            for SSPs in self.Recycling_Evolution.index[:3]:
+                if SSPs in self.scenario:
+                    for m in self.listMetals:
+                        if m in self.Initial_Recycling_Rate.index:
+                            # Improved recycling rate according to the scenario
+                            self.Recycling_Rate['2050'].loc[m] = self.Recycling_Evolution['2050_Recycling_Rate'].loc[SSPs]
+                        else:
+                            self.Recycling_Rate['2050'].loc[m] = 0.0
+
+        # Conversion of years in int for the interpolation
+        self.Recycling_Rate.columns = self.Recycling_Rate.columns.astype(int)
+        # Convert all columns to numeric (even if they are of object type)
+        self.Recycling_Rate = self.Recycling_Rate.apply(pd.to_numeric, errors='coerce')
+        # Linear interpolation between the initial 2020 value, and the 2050 assumed one
+        self.Recycling_Rate = self.Recycling_Rate.interpolate(method='linear', axis=1)
+        # Conversion of years in string
+        self.Recycling_Rate.columns = self.Recycling_Rate.columns.astype(str)
+
     def Demand_Other_Sectors(self):
         '''
         Estimation of the metal demand of the rest of the economy
@@ -1034,7 +1086,7 @@ class IAM_Metal_Optimisation_EV :
                 for d in self.listDecades:
                     self.model.constraintCC.add(self.model.s[r, t, d] - self.s0[r].loc[t][d] == 0)
 
-    def CstrMetalRes(self):
+    def CstrMetal_Res(self):
         '''
         Constrain the model to limit cumulated metal demand in 2050 under the ResLimit restriction
         '''
@@ -1048,11 +1100,11 @@ class IAM_Metal_Optimisation_EV :
                                                       # Metal demand to create the vehicle stock with recycling between 2020 and 2030
                                                       + sum(
                 sum(self.model.x[v, self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m][v] for v in self.listVehicle)
-                - self.model.x_growth['ICEV', self.listYearsTot[y + 1]] * 80 / 100 * self.MI_Vehicle.loc[m]['ICEV'] for y in
+                - self.model.x_growth['ICEV', self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m]['ICEV'] for y in
                 range(2, 12))/self.MetalData['RR (%) Res'].loc[m]
                                                       # Metal demand to create the vehicle stock with recycling between 2030 and 2040
                                                       + sum(
-                (self.model.x[v, self.listYearsVehicle[y]] - self.model.x[v, self.listYearsTot[y + 1]] * 80 / 100) * self.MI_Vehicle.loc[m][v] /
+                (self.model.x[v, self.listYearsVehicle[y]] - self.model.x[v, self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]]) * self.MI_Vehicle.loc[m][v] /
                 self.MetalData['RR (%) Res'].loc[m] for v in self.listVehicle for y in range(12, len(self.listYearsVehicle)))
 
                                                       + sum(self.OTD.loc[m][y] / self.MetalData['RR (%) Res'].loc[m]
@@ -1065,38 +1117,12 @@ class IAM_Metal_Optimisation_EV :
 
         # model.constraint_DemandCumulated.pprint()
 
-    def CstrMetalMining(self):
+    def CstrMetal_Mining(self):
         '''
         Constrain the model to limit annual metal demand under the estimated metal production
         or to limit metal demand for energy under an Alpha percentage of the demand for
         the rest of the transition and economy
         '''
-        '''
-        self.model.Constraint_DemandByYear = ConstraintList()
-        
-        for d in range(1, len(self.listDecades)):
-            for m in self.listMetals:
-                self.model.Constraint_DemandByYear.add(sum(self.MetalIntensity_doc[self.listDecades[d]][t].loc[m]
-                                                           * (self.model.s[r, t, self.listDecades[d]] -
-                                                              self.model.s[r, t, self.listDecades[d - 1]])
-                                                           / self.MetalData['RR (%) Prod'].loc[m] for t in
-                                                           self.listTechno_Ren for r in
-                                                           self.listRegions) / 10  # Suppose a linear growth by decade
-                                                       + sum(((self.model.x[v, self.listDecades[d]] - self.model.x[
-                    v, self.listYearsVehicle[(d - 1) * 10]] * 80 / 100) * self.MI_Vehicle.loc[m][v]) /
-                                                             self.MetalData['RR (%) Prod'].loc[m] for v in self.listVehicle)
-                                                       <= max(
-                    self.Prod[self.listDecades[d]].loc[m]  # Production at the year of the decade
-                    - self.OTD[self.listDecades[d]].loc[m] / self.MetalData['RR (%) Prod'].loc[
-                        m]  # Metals needed for EV, electric grid, storage, according to IEA
-                    - self.OSD[self.listDecades[d]].loc[m], self.Alpha / 100 * (
-                                self.OSD[self.listDecades[d]].loc[m]/ self.MetalData['RR (%) Prod'].loc[
-                        m] + self.OTD[self.listDecades[d]].loc[m]))
-                                                       + self.model.Mining_relax[
-                                                           m, self.listDecades[d]])  # Relaxation variable
-        '''
-
-        self.list_i = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
         def renewable_demand(m, d):
             return sum(
@@ -1116,7 +1142,7 @@ class IAM_Metal_Optimisation_EV :
                             for v in self.listVehicle
                         )
                         - self.model.x_growth['ICEV', self.listYearsTot[5 + i + 10 * d - self.Lifetime_V]]
-                        * self.MI_Vehicle.loc[m, 'ICEV'] * 0.8
+                        * self.MI_Vehicle.loc[m, 'ICEV'] * self.Recycling_Rate.loc[m,self.listYearsTot[5 + i + 10 * d]]
                     )
                     / self.MetalData['RR (%) Prod'].loc[m]
                     for i in self.list_i
@@ -1126,7 +1152,7 @@ class IAM_Metal_Optimisation_EV :
                     (
                             sum(
                                 self.model.x[v, self.listYearsTot[5 + i + 10 * d]]
-                                - self.model.x[v, self.listYearsTot[5 + i + 10 * d - self.Lifetime_V]] * 80 / 100
+                                - self.model.x[v, self.listYearsTot[5 + i + 10 * d - self.Lifetime_V]] * self.Recycling_Rate.loc[m,self.listYearsTot[5 + i + 10 * d]]
                                 for i in self.list_i
                             )
                             / 10
@@ -1312,10 +1338,10 @@ class IAM_Metal_Optimisation_EV :
                 in range(1, len(self.listDecades)))
 
             EVSectorDemand[m] = (sum(sum(self.res_EV.loc[v, self.listYearsVehicle[y]]* self.MI_Vehicle.loc[m][v] for v in self.listVehicle)
-                                         - self.VehicleType_Growth.loc['ICEV', self.listYearsTot[y + 1]] * 80 / 100 * self.MI_Vehicle.loc[m]['ICEV']
-                                         for y in range(2, 12))
+                                         - self.VehicleType_Growth.loc['ICEV', self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m]['ICEV']
+                                         for y in range(2, 12))/ self.MetalData['RR (%) Res'].loc[m]
                                  + sum((self.res_EV.loc[v, self.listYearsVehicle[y]]
-                                        - self.res_EV.loc[v, self.listYearsTot[y + 1]] * 80 / 100)
+                                        - self.res_EV.loc[v, self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]])
                                        * self.MI_Vehicle.loc[m][v] / self.MetalData['RR (%) Res'].loc[m]
                                        for v in self.listVehicle for y in range(12, len(self.listYearsVehicle))))
 
@@ -1357,9 +1383,10 @@ class IAM_Metal_Optimisation_EV :
                     * newCapacityD[r][self.listDecades[d]].loc[t] / 10
                     for t in self.listTechno_Ren for r in self.listRegions)
 
-                EVSectorDemand[self.listDecades[d]].loc[m] = sum((self.res_EV.loc[v,self.listDecades[d]]
-                                                                  *self.MI_Vehicle.loc[m][v])/self.MetalData['RR (%) Prod'].loc[m]
-                                                                 for v in self.listVehicle)
+                EVSectorDemand[self.listDecades[d]].loc[m] = sum(
+                    self.res_EV.loc[v, self.listYearsTot[5 + i + 10 * d]] * self.MI_Vehicle.loc[m, v]
+                    for v in self.listVehicle for i in self.list_i
+                    )/(10*self.MetalData['RR (%) Prod'].loc[m])
         self.EVSectorDemand = EVSectorDemand
 
         # Create a three dimensions dataFrame to add all datas of consumption by decade
@@ -1384,8 +1411,17 @@ class IAM_Metal_Optimisation_EV :
         Secondary_Prod_df = pd.DataFrame(0.0, index=self.listMetals, columns=self.listDecades)
         for m in self.listMetals:
             for d in range(1, len(self.listDecades)):
-                Secondary_Prod_df[self.listDecades[d]].loc[m] = sum(self.res_EV.loc[v, self.listYearsVehicle[(d - 1) * 10]]
-                                                               * 80 / 100 * self.MI_Vehicle[v].loc[m] for v in self.listVehicle)
+                if d==1:
+                    Secondary_Prod_df.loc[m, self.listDecades[d]] = (sum(
+                        self.VehicleType_Growth.loc['ICEV', self.listYearsTot[5 + i + 10 * d - self.Lifetime_V]]
+                        * self.Recycling_Rate.loc[m,self.listYearsTot[5 + i + 10 * d]] for i in self.list_i)
+                                                                      * self.MI_Vehicle.loc[m]['ICEV']
+                                                                     /(10*self.MetalData['RR (%) Prod'].loc[m]))
+                elif d>1:
+                    Secondary_Prod_df.loc[m, self.listDecades[d]] = (sum(self.res_EV.loc[v, self.listYearsTot[5 + i + 10 * d - self.Lifetime_V]]
+                                * self.MI_Vehicle.loc[m, v] * self.Recycling_Rate.loc[m,self.listYearsTot[5 + i + 10 * d]] for v in self.listVehicle for i in self.list_i)
+                                                                     /(10 * self.MetalData['RR (%) Prod'].loc[m]))
+
         self.Secondary_Prod_df = Secondary_Prod_df
 
 

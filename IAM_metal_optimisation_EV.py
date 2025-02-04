@@ -1192,15 +1192,16 @@ class IAM_Metal_Optimisation_EV :
 
         '''
         Constraint to model the limit of the penetration of the new sodium-ion battery
+        Supposition of a price advantage for Na-ion battery from 2035
         '''
 
         self.model.Constraint_NewTechnoEV = ConstraintList()
-
-        for d in self.listDecades:
+        # Before 2035, cannot add more than 10% of Na-ion already presumed
+        for y in self.listYearsVehicle[:18]:
             self.model.Constraint_NewTechnoEV.add(sum(
-                sum(self.TechnoMatrixEV[v].loc[V] * self.model.x[v, d] for v in self.listVehicle)
+                sum(self.TechnoMatrixEV[v].loc[V] * self.model.x[v, y] for v in self.listVehicle)
                 for V in self.listVehicleAgg if "Na-ion" in V)
-                <= 1.2 * sum(self.x0.loc[V, d] for V in self.listVehicleAgg if "Na-ion" in V))
+                <= 1.1 * sum(self.x0.loc[V, y] for V in self.listVehicleAgg if "Na-ion" in V))
 
     def CstrBiomassAvail(self):
         '''

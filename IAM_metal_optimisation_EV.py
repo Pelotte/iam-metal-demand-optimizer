@@ -810,6 +810,9 @@ class IAM_Metal_Optimisation_EV :
         # DataFrame for recycling rates of metals used in EV
         self.Recycling_Rate = pd.DataFrame(columns=self.listYearsVehicle[2:], index=self.listMetals)
 
+        # Change recycling_Evolution df columns in strings
+        self.Recycling_Evolution.columns = self.Recycling_Evolution.columns.astype(str)
+
         # Add initial recycling rates for the 2020 year
         for m in self.listMetals:
             if m in self.Initial_Recycling_Rate.index:
@@ -826,12 +829,17 @@ class IAM_Metal_Optimisation_EV :
                 else:
                     self.Recycling_Rate['2050'].loc[m] = 0.0
         else:
-            for SSPs in self.Recycling_Evolution.index[:3]:
+            for SSPs in ['SSP1', 'SSP2', 'SSP3']:
                 if SSPs in self.scenario:
+                    # Select data for the concerned scenario
+                    Recycling_EvolutionSSP = self.Recycling_Evolution.loc[self.Recycling_Evolution['SSPs'] == SSPs]
                     for m in self.listMetals:
+                        # Add recycling rates for concerned metals only
                         if m in self.Initial_Recycling_Rate.index:
                             # Improved recycling rate according to the scenario
-                            self.Recycling_Rate['2050'].loc[m] = self.Recycling_Evolution['2050_Recycling_Rate'].loc[SSPs]
+                            self.Recycling_Rate['2028'].loc[m] = Recycling_EvolutionSSP['2028'].loc[m]
+                            self.Recycling_Rate['2032'].loc[m] = Recycling_EvolutionSSP['2032'].loc[m]
+                            self.Recycling_Rate['2050'].loc[m] = Recycling_EvolutionSSP['2050'].loc[m]
                         else:
                             self.Recycling_Rate['2050'].loc[m] = 0.0
 

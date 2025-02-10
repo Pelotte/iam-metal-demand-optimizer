@@ -76,7 +76,7 @@ class IAM_Metal_Optimisation_EV :
         self.Lifetime_V = 12
 
         # Penalisation by M of the relaxation variable in the objective function
-        self.M = 10**9
+        self.M = 10**6
         # Folder path for results according to the modelisation type chosen
         self.Res_folder = self.result_path+ self.ModelisationType
 
@@ -1197,7 +1197,7 @@ class IAM_Metal_Optimisation_EV :
 
         self.model.Constraint_NewTechnoEV = ConstraintList()
         # Before 2035, cannot add more than 10% of Na-ion already presumed
-        for y in self.listYearsVehicle[:18]:
+        for y in self.listYearsVehicle[:23]:
             self.model.Constraint_NewTechnoEV.add(sum(
                 sum(self.TechnoMatrixEV[v].loc[V] * self.model.x[v, y] for v in self.listVehicle)
                 for V in self.listVehicleAgg if "Na-ion" in V)

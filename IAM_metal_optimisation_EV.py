@@ -57,7 +57,7 @@ class IAM_Metal_Optimisation_EV :
         (SSP-RCP) that wants to be studied
         :param ModelisationType: [string] 'Init' to study initial IAM power mix metal demand
                                  'Opti' to generate an optimisation of IAM power mix
-        :param Alpha: [int] percentage value of acceptable share of metal energy demand in comparison to OSD and OTD
+        :param Alpha: [int] percentage value of acceptable share of metal energy demand in comparison to OSD and Storage_Demand
         for the optimisation metal production by year constraint (See CstrMetalMining) ; original value is 5
         :param ResLimit : [string] Limit for the optimisation of cumulated metal demand : "Reserves" or "Resources" ;
         original value is "Resources"
@@ -69,7 +69,7 @@ class IAM_Metal_Optimisation_EV :
         self.ResLimit = ResLimit # Chosen limit for cumulated metal demand in 2050 ("Reserves" or "Resources")
         # Choose to study the demand in metal of the initial IAM scenario ("Init") or with an optimisation ("Opti")
         self.ModelisationType = ModelisationType
-        # Acceptable share of metal energy demand in comparison to OSD and OTD for the optimisation
+        # Acceptable share of metal energy demand in comparison to OSD and Storage_Demand for the optimisation
         self.Alpha = Alpha
 
         # Lifetime of a vehicle
@@ -162,8 +162,12 @@ class IAM_Metal_Optimisation_EV :
                                              index_col=0)
         self.Matrix_CF_disag = Matrix_CF_Init_disag.sort_values(by='Techno ') # Rearrange matrix in the alphabetic order of technologies
 
-        # Import metal consumption by decade for EV, storage in [t/decade] (from IEA)
-        self.OTD_init = pd.read_excel(self.folder_path + 'Demand_Storage&Network_IEA.xlsx')
+        # Import metal consumption by decade for storage in [t/decade] (from IEA)
+        self.Storage_Demand_init = pd.read_excel(self.folder_path + 'Demand_Storage&Network_IEA.xlsx', index_col=0)
+
+        # Import initial metal consumption by decade for network in [t/decade] (from IEA)
+        self.Network_Demand_init = pd.read_excel(self.folder_path + 'Demand_Storage&Network_IEA.xlsx',
+                                            sheet_name='Demand_Network', index_col=0)
 
         # Tab of future metal production according to different scenarios from 2020 to 2050 [t/yr]
         #self.Prod = pd.read_excel(self.folder_path + 'Future metal prod.xlsx', index_col=0)
@@ -439,6 +443,8 @@ class IAM_Metal_Optimisation_EV :
         Based on different International Energy Agency (IEA) scenarios
         '''
 
+        # 0. Match IEA scenario with SSP-RCP ones
+
         # Addition of the data from the IEA in this DataFrame. The IEA scenario considered depends on the SSP
         # Net Zero
         if self.scenario == 'SSP1-19' or self.scenario == 'SSP4-19':
@@ -453,34 +459,57 @@ class IAM_Metal_Optimisation_EV :
             scenarioIEA = 'SPS'
             self.scenarioIEA = scenarioIEA
 
+        # 1. Demand for Storage of energy, from IEA data
+
         # Select only the data of the scenario studied, thanks to the column scenario
-        self.OTD_init = self.OTD_init[self.OTD_init["Scenario"] == scenarioIEA]
-        # Drop the columns for technology and scenario, to only have the metal information
-        self.OTD_init = self.OTD_init.drop(columns=['Technology [t/yr]', 'Scenario'])
-        # Group IEA data by metals
-        self.OTD_init = self.OTD_init.groupby('Metal')
-        # Sum for every IEA studied technology, by year, for each metal
-        self.OTD_init = self.OTD_init.sum()
+        self.Storage_Demand_init = self.Storage_Demand_init[self.Storage_Demand_init["Scenario"] == scenarioIEA]
+
         # Add missing years to the initial dataFrame
         all_years = np.arange(2020, 2051)
-        self.OTD_init = self.OTD_init.reindex(columns=all_years)
-        # Linear Interpolation to fill intermediate years
-        for m in self.OTD_init.index:
-            self.OTD_init.loc[m] = self.OTD_init.loc[m].interpolate(method='linear')
-        # Linear extrapolation for 2020 and 2021
-        self.OTD_init[2020] = 2 * self.OTD_init[2022] - self.OTD_init[2025]
-        self.OTD_init[2021] = (self.OTD_init[2022] + self.OTD_init[2020]) / 2  # Mean value
-        # Change columns as strings
-        self.OTD_init.columns = self.OTD_init.columns.astype(str)
+        self.Storage_Demand_init = self.Storage_Demand_init.reindex(columns=all_years)
 
-        # Create the final OTD dataFrame
-        self.OTD = pd.DataFrame(index=self.listMetals, columns=self.listYears)  
+        # Linear Interpolation to fill intermediate years
+        for m in self.Storage_Demand_init.index:
+            self.Storage_Demand_init.loc[m] = self.Storage_Demand_init.loc[m].interpolate(method='linear')
+        # Linear extrapolation for 2020 and 2021
+        self.Storage_Demand_init[2020] = 2 * self.Storage_Demand_init[2022] - self.Storage_Demand_init[2025]
+        self.Storage_Demand_init[2021] = (self.Storage_Demand_init[2022] + self.Storage_Demand_init[2020]) / 2  # Mean value
+        # Change columns as strings
+        self.Storage_Demand_init.columns = self.Storage_Demand_init.columns.astype(str)
+
+        # Create the final Storage_Demand dataFrame
+        self.Storage_Demand = pd.DataFrame(0.0, index=self.listMetals, columns=self.listYears)
         for y in self.listYears:
-            for m in self.listMetals:
-                if m in self.OTD_init.index:
-                    self.OTD[y].loc[m] = self.OTD_init[y].loc[m]
-                else:
-                    self.OTD[y].loc[m] = 0
+            for m in self.Storage_Demand_init.index:
+                if self.Storage_Demand_init[y].loc[m] > 0.0:
+                    self.Storage_Demand[y].loc[m] = self.Storage_Demand_init[y].loc[m]
+
+        # 2. Demand for Grid network, from IEA data
+
+        # Select only the data of the scenario studied, thanks to the column scenario
+        self.Network_Demand_init = self.Network_Demand_init[self.Network_Demand_init["Scenario"] == scenarioIEA]
+
+        # Linearization of metal demand for missing years
+        self.Network_Demand_init = self.Network_Demand_init.reindex(columns=all_years)
+
+        # Linear Interpolation to fill intermediate years
+        for m in self.Network_Demand_init.index:
+            self.Network_Demand_init.loc[m] = self.Network_Demand_init.loc[m].interpolate(method='linear')
+
+        # Linear extrapolation for 2020 and 2021
+        self.Network_Demand_init[2020] = 2 * self.Network_Demand_init[2022] - self.Network_Demand_init[2025]
+        self.Network_Demand_init[2021] = (self.Network_Demand_init[2022] + self.Network_Demand_init[2020]) / 2  # Mean value
+
+        # Change columns as strings
+        self.Network_Demand_init.columns = self.Network_Demand_init.columns.astype(str)
+
+        self.Network_Demand = pd.DataFrame(0.0, index=self.listMetals, columns=self.listYears)
+
+        for y in self.listYears:
+            for m in self.Network_Demand_init.index:
+                if self.Network_Demand_init[y].loc[m] > 0.0:
+                    self.Network_Demand[y].loc[m] = self.Network_Demand_init[y].loc[m]
+
 
     def Future_Production(self):
 
@@ -808,7 +837,7 @@ class IAM_Metal_Optimisation_EV :
         '''
 
         # DataFrame for recycling rates of metals used in EV
-        self.Recycling_Rate = pd.DataFrame(columns=self.listYearsVehicle[2:], index=self.listMetals)
+        self.Recycling_Rate = pd.DataFrame(columns=self.listYears, index=self.listMetals)
 
         # Change recycling_Evolution df columns in strings
         self.Recycling_Evolution.columns = self.Recycling_Evolution.columns.astype(str)
@@ -895,7 +924,7 @@ class IAM_Metal_Optimisation_EV :
         # Initialise the datas from 2020 with actual known metal prod in 2020 - metal demand for the transition [t/y]
         for m in self.listMetals:
             # Total prod in 2020 - Metal for grid and storage - Metal for powCap installation in 2020 - Metal for EV
-            InitialOSD = ((self.Prod['2020'].loc[m] - self.OTD['2020'].loc[m] / self.MetalData['RR (%) Prod'].loc[m]
+            InitialOSD = ((self.Prod['2020'].loc[m] - (self.Storage_Demand['2020'].loc[m]+self.Network_Demand['2020'].loc[m]) / self.MetalData['RR (%) Prod'].loc[m]
                           -self.PowerMetalDemand_y['2020'].loc[m] / self.MetalData['RR (%) Prod'].loc[m])
                           - sum(self.x0.loc[v, '2020'] * self.MI_VehicleAgg.loc[m][v] / self.MetalData['RR (%) Prod'].loc[m] for v in self.listVehicleAgg))
             # Change OSD value only if it is above 0, if not : = 0.
@@ -959,27 +988,27 @@ class IAM_Metal_Optimisation_EV :
 
         self.model = ConcreteModel()
 
-        # Declaration of the optimization variable s for cumulated powder capacities
+        # Declaration of the optimization variables
+
+        # Cumulated powder capacities at the region r, of the energy source t, at the decade d
         self.model.s = Var(self.listRegions, self.listTechno, self.listDecades, initialize=0, domain=NonNegativeReals)
-        # Declaration of the optimization variable v for million vehicles sold by year
+        # Millions of specific vehicles v sold at the year y (from 2020 to 2050)
         self.model.x = Var(self.listVehicle, self.listYearsVehicle, initialize=0, domain=NonNegativeReals)
-        # Declaration of the optimization variable v for vehicles sold by year to answer the growth in demand
+        # Millions of vehicles sold to answer the growth in demand, by vehicle type, at the year y
         self.model.x_growth = Var(self.listVehicleType, self.listYearsTot[1:], initialize=0, domain=NonNegativeReals)
-        # Declaration of the optimization variable v for vehicles sold by year to maintain stock of previous years
+        # Millions of vehicles sold to maintain stock of previous years, by vehicle type, at the year y
         self.model.x_maintain = Var(self.listVehicleType, self.listYearsVehicle, initialize=0, domain=NonNegativeReals)
+        # Million tons of Copper and Aluminium demand for grid network, at the year y
+        self.model.n = Var(self.listMetals, self.listYears, initialize=0, domain=NonNegativeReals)
 
-        # Relaxation variables
+        # Declaration of the relaxation variables
 
-        # Declaration of the  relaxation variables, one positive, one negative, for the metal reserve constraint
+        # Potential requirement for additional ResLimit of metal m at the decade d
         self.model.Res_relax = Var(self.listMetals_knownRes, initialize=0, within=NonNegativeReals)
-
-        # Declaration of the  relaxation variables, one positive, one negative, for the metal mining constraint
+        # Potential requirement for additional mining production of metal m at the decade d
         self.model.Mining_relax = Var(self.listMetals, self.listDecades, initialize=0, within=NonNegativeReals)
-
-        # Declaration of the relaxation variable in case the initial techno mix has a decrease for some technoRen
+        # In case the initial techno mix has a decrease for some technoRen
         self.model.CoherentMix_relax = Var(self.listRegions, self.listTechno_Ren, self.listDecades, initialize=0, within=NonNegativeReals)
-
-        #self.model.Stock_relax = Var(self.listVehicleType, self.listYearsVehicle, initialize=0, within=Reals)
 
     def modelObj(self):
         '''
@@ -999,11 +1028,27 @@ class IAM_Metal_Optimisation_EV :
                      - self.x0.loc[V, y]) / (self.x0.loc[V, y]+epsilon)) ** 2)
                   for V in self.listVehicleAgg for y in self.listYearsVehicle)
 
+            + sum(((self.model.n[m, y]*10**6 - self.Network_Demand.loc[m, y]) / (self.Network_Demand.loc[m, y] + epsilon)) ** 2 for m in
+                  self.listMetals for y in self.listYears)
+
             + sum(self.M * (self.model.Res_relax[m] / self.MetalData[self.ResLimit].loc[m]) for m in self.listMetals_knownRes)
             + sum(self.M * (self.model.Mining_relax[m, d] / self.Prod[d].loc[m]) for m in self.listMetals for d in self.listDecades)
             + sum(self.M * (self.model.CoherentMix_relax[r, t_r, d]) for r in self.listRegions for t_r in self.listTechno_Ren for d in self.listDecades)
             #+ sum(self.M * (self.model.Stock_relax[vT, y]) ** 2 for vT in self.listVehicleType for y in self.listYearsVehicle)
             , sense=minimize)
+
+    def CstrNetworkSubstitution(self):
+        '''
+        Constraint the model to meet electric grid requirement,
+        with a potential mass substitution of aluminium to copper as 1:2
+        '''
+
+        self.model.ConstraintNetworkSubstitution = ConstraintList()
+        for y in self.listYears:
+            self.model.ConstraintNetworkSubstitution.add(
+                (self.model.n['Aluminium', y] * 2 + self.model.n['Copper', y])*10**6
+                == self.Network_Demand.loc['Aluminium', y] * 2 + self.Network_Demand.loc['Copper', y]
+            )
 
     def CstrEnergyDemand(self):
         '''
@@ -1115,8 +1160,11 @@ class IAM_Metal_Optimisation_EV :
                 (self.model.x[v, self.listYearsVehicle[y]] - self.model.x[v, self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]]) * self.MI_Vehicle.loc[m][v] /
                 self.MetalData['RR (%) Res'].loc[m] for v in self.listVehicle for y in range(12, len(self.listYearsVehicle)))
 
-                                                      + sum(self.OTD.loc[m][y] / self.MetalData['RR (%) Res'].loc[m]
+                                                      + sum(self.Storage_Demand.loc[m][y] / self.MetalData['RR (%) Res'].loc[m]
                                                             for y in self.listYears)
+                                                      # Metal demand cumulated for network grid
+                                                      + sum(
+                self.model.n[m, y]*10**6 / self.MetalData['RR (%) Res'].loc[m] for y in self.listYears)
                                                       + sum(
                 (self.OSD[self.listDecades[d]].loc[m] + self.OSD[self.listDecades[d - 1]].loc[m]) * 10 / 2 for d in
                 range(1, len(self.listDecades)))
@@ -1140,6 +1188,11 @@ class IAM_Metal_Optimisation_EV :
                 for t in self.listTechno_Ren
                 for r in self.listRegions
             ) / 10
+
+        def network_demand(m, d):
+            return (sum(
+                self.model.n[m, self.listYearsTot[5 + i + 10 * d]]*10**6 for i in self.list_i)
+                    / (self.MetalData['RR (%) Prod'].loc[m] * 10))
 
         def vehicle_demand(m, d):
             if d == 1:
@@ -1173,12 +1226,12 @@ class IAM_Metal_Optimisation_EV :
         def max_production(m, d):
             return max(
                 self.Prod[self.listDecades[d]].loc[m]
-                - self.OTD[self.listDecades[d]].loc[m] / self.MetalData['RR (%) Prod'].loc[m]
+                - self.Storage_Demand[self.listDecades[d]].loc[m] / self.MetalData['RR (%) Prod'].loc[m]
                 - self.OSD[self.listDecades[d]].loc[m],
                 self.Alpha / 100
                 * (
                         self.OSD[self.listDecades[d]].loc[m]
-                        + self.OTD[self.listDecades[d]].loc[m] / self.MetalData['RR (%) Prod'].loc[m]
+                        + self.Storage_Demand[self.listDecades[d]].loc[m] / self.MetalData['RR (%) Prod'].loc[m]
                 ),
             )
 
@@ -1187,12 +1240,13 @@ class IAM_Metal_Optimisation_EV :
         for m in self.listMetals:
             for d in range(1, len(self.listDecades)):
                 demand_renewable = renewable_demand(m, d)
+                demand_network = network_demand(m, d)
                 demand_vehicle = vehicle_demand(m, d)
                 production_capacity = max_production(m, d)
 
                 # Add constraint
                 self.model.Constraint_DemandByYear.add(
-                    demand_renewable + demand_vehicle
+                    demand_renewable + demand_network + demand_vehicle
                     <= production_capacity + self.model.Mining_relax[m, self.listDecades[d]]
                 )
 
@@ -1306,6 +1360,8 @@ class IAM_Metal_Optimisation_EV :
         if self.ModelisationType == 'Init':
             # PowerCap initial results
             self.res_dic = self.s0
+            # Network initial results
+            self.res_Network = self.Network_Demand
             # EV initial results
             self.res_EV = self.x0
         if self.ModelisationType == 'Opti':
@@ -1320,6 +1376,14 @@ class IAM_Metal_Optimisation_EV :
                 res_dic[r].loc[t, d] = value
             self.res_dic = res_dic
 
+            # Network optimised results
+            Network_opti_dic = self.model.n.get_values()
+            res_Network = pd.DataFrame(index=self.listMetals, columns=self.listYears)
+            for m in self.listMetals:
+                for y in self.listYears:
+                    res_Network.loc[m][y] = Network_opti_dic[m, y]*10**6
+            self.res_Network = res_Network
+
             # EV optimised results
             EV_opti_dic = self.model.x.get_values()
             res_EV = pd.DataFrame(columns= self.listYearsVehicle, index= self.listVehicle)
@@ -1331,10 +1395,12 @@ class IAM_Metal_Optimisation_EV :
         # Calcul cumulated demand
         # Create a list with metals needed for the energy sources
         EnergySectorDemand = pd.Series()
+        # Create a list with metals needed for the storage
+        NetworkDemand = pd.Series()
         # Create a list with metals needed for the electric vehicles
         EVSectorDemand = pd.Series()
         # Create a list with metals needed for storage and electric grid
-        OtherTransitionDemand = pd.Series()
+        StorageDemand = pd.Series()
         # Create a list with metals needed for the other sector of society
         OtherSectorDemand = pd.Series()
         # Add datas for each Series
@@ -1345,7 +1411,7 @@ class IAM_Metal_Optimisation_EV :
                     self.MetalIntensity_doc[self.listDecades[d - 1]][t].loc[m]) / 2)
                 / self.MetalData['RR (%) Res'].loc[m] for t in self.listTechno_Ren for r in self.listRegions for d
                 in range(1, len(self.listDecades)))
-
+            NetworkDemand[m] = sum(self.res_Network.loc[m][y] / self.MetalData['RR (%) Res'].loc[m] for y in self.listYears)
             EVSectorDemand[m] = (sum(sum(self.res_EV.loc[v, self.listYearsVehicle[y]]* self.MI_Vehicle.loc[m][v] for v in self.listVehicle)
                                          - self.VehicleType_Growth.loc['ICEV', self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m]['ICEV']
                                          for y in range(2, 12))/ self.MetalData['RR (%) Res'].loc[m]
@@ -1354,14 +1420,14 @@ class IAM_Metal_Optimisation_EV :
                                        * self.MI_Vehicle.loc[m][v] / self.MetalData['RR (%) Res'].loc[m]
                                        for v in self.listVehicle for y in range(12, len(self.listYearsVehicle))))
 
-            OtherTransitionDemand[m] = sum(
-                self.OTD.loc[m][y] / self.MetalData['RR (%) Res'].loc[m] for y in self.listYears)
+            StorageDemand[m] = sum(
+                self.Storage_Demand.loc[m][y] / self.MetalData['RR (%) Res'].loc[m] for y in self.listYears)
             OtherSectorDemand[m] = + self.OSD['2020'].loc[m] + sum(
                 (self.OSD[self.listDecades[d]].loc[m] + self.OSD[self.listDecades[d - 1]].loc[m]) * 10 / 2 for d in
                 range(1, len(self.listDecades)))
             # Concatenate the Series along axis 1 (columns), specifying keys for the resulting DataFrame
-        DemandCumulated = pd.concat([OtherSectorDemand, OtherTransitionDemand, EVSectorDemand, EnergySectorDemand], axis=1,
-                                    keys=['Other Sector Demand', 'Other Transition Demand', 'EV Sector Demand', 'Energy Sector Demand'])
+        DemandCumulated = pd.concat([OtherSectorDemand, StorageDemand, NetworkDemand, EVSectorDemand, EnergySectorDemand], axis=1,
+                                    keys=['Other Sector Demand', 'Storage Demand', 'Network Demand', 'EV Sector Demand','Energy Sector Demand'])
         self.DemandCumulated = DemandCumulated
 
         # Calcul demand by year
@@ -1380,6 +1446,7 @@ class IAM_Metal_Optimisation_EV :
 
         # Create a dF with metals needed for the energy sources
         EnergySectorDemandy = pd.DataFrame(0.0, index=self.listMetals, columns=self.listDecades)
+        NetworkDemandy = pd.DataFrame(0.0, index=self.listMetals, columns=self.listDecades)
         EVSectorDemand = pd.DataFrame(0.0, index=self.listMetals, columns=self.listDecades)
         EnergySectorDemandy['2020'] = self.PowerMetalDemand_y['2020'] / self.MetalData['RR (%) Prod'].loc[m]
         # Loop through decades and metals
@@ -1392,6 +1459,10 @@ class IAM_Metal_Optimisation_EV :
                     * newCapacityD[r][self.listDecades[d]].loc[t] / 10
                     for t in self.listTechno_Ren for r in self.listRegions)
 
+                NetworkDemandy[self.listDecades[d]].loc[m] = (sum(
+                    self.res_Network.loc[m][self.listYearsTot[5 + i + 10 * d]] for i in self.list_i)
+                                                               /(self.MetalData['RR (%) Prod'].loc[m]*10))
+
                 EVSectorDemand[self.listDecades[d]].loc[m] = sum(
                     self.res_EV.loc[v, self.listYearsTot[5 + i + 10 * d]] * self.MI_Vehicle.loc[m, v]
                     for v in self.listVehicle for i in self.list_i
@@ -1403,15 +1474,16 @@ class IAM_Metal_Optimisation_EV :
         for m in self.listMetals:
             # Index for different datasSets, columns for each decades
             DemandByYear_df[m] = pd.DataFrame(
-                index=['Other Sector Demand', 'Other Transition Demand', 'EV Sector Demand','Energy Sector Demand'],
+                index=['Other Sector Demand', 'Storage Demand', 'Network Demand', 'EV Sector Demand','Energy Sector Demand'],
                 columns=self.listDecades)
             for i in DemandByYear_df[m].index:
                 # Add the values for each dataSets
                 DemandByYear_df[m].loc['Energy Sector Demand'] = EnergySectorDemandy.loc[m] / \
                                                                    self.MetalData['RR (%) Prod'].loc[m]
-                DemandByYear_df[m].loc['Other Sector Demand' ] = self.OSD.loc[m]
-                DemandByYear_df[m].loc['Other Transition Demand'] = self.OTD.loc[m] / \
-                                                                  self.MetalData['RR (%) Prod'].loc[m]
+                DemandByYear_df[m].loc['Other Sector Demand'] = self.OSD.loc[m]
+                DemandByYear_df[m].loc['Network Demand'] = NetworkDemandy.loc[m] / \
+                                                           self.MetalData['RR (%) Prod'].loc[m]
+                DemandByYear_df[m].loc['Storage Demand'] = self.Storage_Demand.loc[m] / self.MetalData['RR (%) Prod'].loc[m]
                 DemandByYear_df[m].loc['EV Sector Demand'] = self.EVSectorDemand.loc[m]
         self.DemandByYear_df = DemandByYear_df
 
@@ -1504,7 +1576,7 @@ class IAM_Metal_Optimisation_EV :
             table.to_excel(excel, sheet_name='DemByYear')
             excel.close()
 
-    def Save_OSD_OTD_Prod (self):
+    def Save_OSD_Prod (self):
 
         '''
         Save datas for other sector demand and other transition demand by year and cumulated by decade
@@ -1526,18 +1598,6 @@ class IAM_Metal_Optimisation_EV :
         self.OSD.to_excel(excel, sheet_name='OSD')
         excel.close()
 
-
-        # Save OTD
-        # Generate the full path for the Excel file for this scenario and model
-        OTD_Folder = Res_Folder_BroaderEconomy + '/OTD'
-        if not os.path.exists(OTD_Folder):
-            os.makedirs(OTD_Folder)
-        excel_path = OTD_Folder + '/OTD_' + self.model_s0 + '_' + self.scenario + '.xlsx'
-        # Create the Excel file and write the data
-        excel = pd.ExcelWriter(excel_path)
-        self.OTD.to_excel(excel, sheet_name='OTD')
-        excel.close()
-
     def SaveEffortBySociety(self):
         '''
         Saves an Excel file, that shows for each decade and each metal, if the mining constraint have been
@@ -1555,7 +1615,7 @@ class IAM_Metal_Optimisation_EV :
             for m in self.listMetals:
                 for d in self.listDecades[1:]:
                     # If total metal demand is under the estimated production
-                    if (self.Prod[d].loc[m] - self.OTD[d].loc[m] / self.MetalData['RR (%) Prod'].loc[m] - self.OSD[d].loc[m]) >= (
+                    if (self.Prod[d].loc[m] - self.Storage_Demand[d].loc[m] / self.MetalData['RR (%) Prod'].loc[m] - self.OSD[d].loc[m]) >= (
                             self.Alpha / 100 * self.OSD[d].loc[m]):
                         ConstraintDemandByYear[d].loc[m] = 'Prod'
                     # If there is a need for an effort from society

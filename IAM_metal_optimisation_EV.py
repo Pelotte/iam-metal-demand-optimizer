@@ -175,6 +175,9 @@ class IAM_Metal_Optimisation_EV :
         # Importation of GDP projections for a specific model, scenario ssp-rcp, at a specific year (from IAM)
         self.GDP_folder = self.folder_path + 'GDP IAM/GDP ' + self.model_s0 + '_' + self.scenario
 
+        # Importation of GDP datas for a specific model, ssp, at a specific year
+        self.Population_folder = self.folder_path + 'Population IAM/Population ' + model_s0 + '_' + self.scenario
+
         # Folder used to stock initial Power capacity projections for specific model_s0 and scenario, for various regions
         self.folderIAM = self.folder_path + 'Power Capacity IAM/Dossier s0 ' + self.model_s0 + '_' + self.scenario
 
@@ -881,7 +884,7 @@ class IAM_Metal_Optimisation_EV :
         # Conversion of years in string
         self.Recycling_Rate.columns = self.Recycling_Rate.columns.astype(str)
 
-    def Demand_Other_Sectors(self):
+    def Demand_Other_Sectors(self, growth):
         '''
         Estimation of the metal demand of the rest of the economy
         Based on literature and Gross Domestic Product (GDP) growth from IAM and SSP-RCP
@@ -931,29 +934,63 @@ class IAM_Metal_Optimisation_EV :
             if InitialOSD > 0:
                 OSD["2020"].loc[m] = InitialOSD
 
-        # 2. Estimate OSD by year until 2050, based on GDP growth
+        if growth == 'GDP':
+            # 2.1 Estimate OSD by year until 2050, based on GDP growth
 
-        # Creation of the GDP dictionary
-        excelGDP = [f for f in os.listdir(self.GDP_folder) if
-                    f.endswith('xlsx')]  # Reads the folder with excel files of GDP from IAM dataset
-        # Creation of a dictionary of dataFrame to stock GDP datas from IAM Excel files
-        self.GDP = {}
-        for region_name, file in zip(self.listRegions, excelGDP):
-            fileGDPbyRegion = os.path.join(self.GDP_folder, file)  # copies datas from GDP files by region in dF
-            self.GDP[region_name] = pd.read_excel(fileGDPbyRegion,
-                                                  index_col=0)  # copies the dataFrames in dic, with first col as index
+            # Creation of the GDP dictionary
+            excelGDP = [f for f in os.listdir(self.GDP_folder) if
+                        f.endswith('xlsx')]  # Reads the folder with excel files of GDP from IAM dataset
+            # Creation of a dictionary of dataFrame to stock GDP datas from IAM Excel files
+            self.GDP = {}
+            for region_name, file in zip(self.listRegions, excelGDP):
+                fileGDPbyRegion = os.path.join(self.GDP_folder, file)  # copies datas from GDP files by region in dF
+                self.GDP[region_name] = pd.read_excel(fileGDPbyRegion,
+                                                      index_col=0)  # copies the dataFrames in dic, with first col as index
 
-        # Initialise a final demand dF to stock future demand in metals, with GDP increase
-        for m in self.listMetals:
-            # Loop through list of years, excluding the first year 2020
-            for d in range(1, len(self.listDecades)):
-                # Create a variable for the demand at the previous year
-                previous_demand = OSD[self.listDecades[d - 1]].loc[m]
-                # Calculate the World GDP increase with a sum for every region
-                GDP_growth = sum(self.GDP[r][self.listDecades[d]].loc['GDP..PPP'] for r in self.listRegions) / sum(
-                    self.GDP[r][self.listDecades[d - 1]].loc['GDP..PPP'] for r in self.listRegions)
-                # Calculate Final demand with the previous one and GDP increase
-                OSD[self.listDecades[d]].loc[m] = previous_demand * GDP_growth
+            # Initialise a final demand dF to stock future demand in metals, with GDP increase
+            for m in self.listMetals:
+                # Loop through list of years, excluding the first year 2020
+                for d in range(1, len(self.listDecades)):
+                    # Create a variable for the demand at the previous year
+                    previous_demand = OSD[self.listDecades[d - 1]].loc[m]
+                    # Calculate the World GDP increase with a sum for every region
+                    GDP_growth = sum(self.GDP[r][self.listDecades[d]].loc['GDP..PPP'] for r in self.listRegions) / sum(
+                        self.GDP[r][self.listDecades[d - 1]].loc['GDP..PPP'] for r in self.listRegions) - 1.3/100
+                    # Calculate Final demand with the previous one and GDP increase
+                    if GDP_growth > 0 :
+                        OSD[self.listDecades[d]].loc[m] = previous_demand * GDP_growth
+                    else :
+                        OSD[self.listDecades[d]].loc[m] = previous_demand
+
+        elif growth == 'Pop':
+
+            # 2.2 Estimate OSD by year until 2050, based on Population growth
+
+            # Creation of the Population dictionary
+            excelPop = [f for f in os.listdir(self.Population_folder) if
+                        f.endswith('xlsx')]  # Reads the folder with excel files of Pop from IAM dataset
+
+            # Creation of a dictionary of dataFrame to stock datas from Excel files
+            Pop = {}
+
+            for region_name, file in zip(self.listRegions, excelPop):
+                filePopbyRegion = os.path.join(self.Population_folder, file)  # copies datas from files in dataFrames
+                Pop[region_name] = pd.read_excel(filePopbyRegion,
+                                                 index_col=0)  # copies the dataFrames in dic, with first col as index
+
+            # Initialise a final demand dF to stock future demand in metals, with Pop increase
+            # Demand_byYear = {year: Demand[year].copy() for year in listDecades}
+
+            for m in self.listMetals:
+                # Loop through list of years, excluding the first year 2020
+                for d in range(1, len(self.listDecades)):
+                    # Create a variable for the demand at the previous year
+                    previous_demand = OSD[self.listDecades[d - 1]].loc[m]
+                    # Calculate the World Pop increase with a sum for every region
+                    Pop_growth = sum(Pop[r][self.listDecades[d]].loc['Population'] for r in self.listRegions) / sum(
+                        Pop[r][self.listDecades[d - 1]].loc['Population'] for r in self.listRegions)
+                    # Calculate Final demand with the previous one and Pop increase
+                    OSD[self.listDecades[d]].loc[m] = previous_demand * Pop_growth
 
         # 3. For available data, replace OSD by data from the literature
 

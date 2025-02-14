@@ -955,7 +955,7 @@ class IAM_Metal_Optimisation_EV :
                     previous_demand = OSD[self.listDecades[d - 1]].loc[m]
                     # Calculate the World GDP increase with a sum for every region
                     GDP_growth = sum(self.GDP[r][self.listDecades[d]].loc['GDP..PPP'] for r in self.listRegions) / sum(
-                        self.GDP[r][self.listDecades[d - 1]].loc['GDP..PPP'] for r in self.listRegions) - 1.3/100
+                        self.GDP[r][self.listDecades[d - 1]].loc['GDP..PPP'] for r in self.listRegions) - 1.3/100*10
                     # Calculate Final demand with the previous one and GDP increase
                     if GDP_growth > 0 :
                         OSD[self.listDecades[d]].loc[m] = previous_demand * GDP_growth
@@ -1481,12 +1481,17 @@ class IAM_Metal_Optimisation_EV :
                                                                           self.listDecades[d - 1]]
         self.newCapacityD = newCapacityD
 
-        # Create a dF with metals needed for the energy sources
+        # Create a dF with metals needed by sector
         EnergySectorDemandy = pd.DataFrame(0.0, index=self.listMetals, columns=self.listDecades)
         NetworkDemandy = pd.DataFrame(0.0, index=self.listMetals, columns=self.listDecades)
         EVSectorDemand = pd.DataFrame(0.0, index=self.listMetals, columns=self.listDecades)
-        EnergySectorDemandy['2020'] = self.PowerMetalDemand_y['2020'] / self.MetalData['RR (%) Prod'].loc[m]
-        # Loop through decades and metals
+
+        # Add initial data for 2020
+        EnergySectorDemandy['2020'] = self.PowerMetalDemand_y['2020']
+        NetworkDemandy['2020'] = self.Network_Demand['2020']
+        EVSectorDemand['2020'] = sum(self.x0.loc[v, '2020'] * self.MI_VehicleAgg[v] for v in self.listVehicleAgg)
+
+        # Add data for next years
         for m in self.listMetals:
             for d in range(1, len(self.listDecades)):
 
@@ -1511,8 +1516,7 @@ class IAM_Metal_Optimisation_EV :
         for m in self.listMetals:
             # Index for different datasSets, columns for each decades
             DemandByYear_df[m] = pd.DataFrame(
-                index=['Other Sector Demand', 'Storage Demand', 'Network Demand', 'EV Sector Demand','Energy Sector Demand'],
-                columns=self.listDecades)
+                index=['Other Sector Demand', 'Storage Demand', 'Network Demand', 'EV Sector Demand','Energy Sector Demand'],columns=self.listDecades)
             for i in DemandByYear_df[m].index:
                 # Add the values for each dataSets
                 DemandByYear_df[m].loc['Energy Sector Demand'] = EnergySectorDemandy.loc[m] / \

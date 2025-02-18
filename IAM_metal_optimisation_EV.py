@@ -111,8 +111,10 @@ class IAM_Metal_Optimisation_EV :
             self.listBatteryDisag = pd.read_excel(file, 'EV battery disag', index_col=0).squeeze().tolist()
             # List of the aggregated batteries studied
             self.listBatteryAgg = pd.read_excel(file, 'EV battery ag', index_col=0).squeeze().tolist()
-            # List of the motors studied
-            self.listMotor = pd.read_excel(file, 'EV motor', index_col=0).squeeze().tolist()
+            # List of the disaggregated motors studied
+            self.listMotorDisag = pd.read_excel(file, 'EV motor disag', index_col=0).squeeze().tolist()
+            # List of the aggregated motors studied
+            self.listMotorAgg = pd.read_excel(file, 'EV motor ag', index_col=0).squeeze().tolist()
 
         # Create a list of Years from the first decade to the last one
         listYears = [str(year) for year in range(int(self.listDecades[0]), int(self.listDecades[-1]) + 1)]
@@ -712,16 +714,17 @@ class IAM_Metal_Optimisation_EV :
                     Vehicle_Growth.loc[v, y] = VehicleType_Growth.loc[v, y]
             else:
                 for b in self.listBatteryAgg:
-                    # Créer les noms pour les véhicules PM et Ind
+                    # Create names by motor types, for copper and aluminium
                     v_PM_Batt = f"{v}_PM_{b}"
                     v_ind_Batt = f"{v}_Ind_{b}"
 
-                    # Ajouter les nouvelles lignes avec des valeurs initiales
+                    # Add new lines
                     Vehicle_Growth.loc[v_PM_Batt] = 0
                     Vehicle_Growth.loc[v_ind_Batt] = 0
 
+
                     for y in self.listYearsVehicle:
-                        # Calculer et assigner les valeurs directement
+                        # Add market share values, with initial assumption of only copper use in motors
                         Vehicle_Growth.loc[v_PM_Batt, y] = (
                                 VehicleType_Growth.loc[v, y]
                                 * self.MS_Motor.loc['MS', 'Motor_PM']
@@ -766,6 +769,8 @@ class IAM_Metal_Optimisation_EV :
                 for b in self.listBatteryDisag:
                     listVehicleDisag.append(f"{v}_PM_{b}")
                     listVehicleDisag.append(f"{v}_Ind_{b}")
+                    listVehicleDisag.append(f"{v}_PM_Al_{b}")
+                    listVehicleDisag.append(f"{v}_Ind_Al_{b}")
         self.listVehicleDisag = listVehicleDisag
 
     def EV_Metal_Intensity(self):
@@ -773,11 +778,13 @@ class IAM_Metal_Optimisation_EV :
         # Initial scenario uses aggregated battery data
         if self.ModelisationType == 'Init':
             self.MI_Battery = self.MI_BatteryAgg
+            self.listMotor = self.listMotorAgg
             self.listBattery = self.listBatteryAgg
             self.listVehicle = self.listVehicleAgg
         # Optimised scenario uses disaggregated battery data
         elif self.ModelisationType == 'Opti':
             self.MI_Battery = self.MI_BatteryDisag
+            self.listMotor = self.listMotorDisag
             self.listBattery = self.listBatteryDisag
             self.listVehicle = self.listVehicleDisag
 
@@ -1052,7 +1059,7 @@ class IAM_Metal_Optimisation_EV :
         Objective of the optimisation model : to minimize the difference with IAM scenario
         '''
 
-        epsilon = 1e-6
+        epsilon = 1
 
         self.model.objective = Objective(
             expr=
@@ -1062,8 +1069,7 @@ class IAM_Metal_Optimisation_EV :
 
 
             + sum((((sum(self.TechnoMatrixEV[v].loc[V] * self.model.x[v, y] for v in self.listVehicle)
-                     - self.x0.loc[V, y]) / (self.x0.loc[V, y]+epsilon)) ** 2)
-                  for V in self.listVehicleAgg for y in self.listYearsVehicle)
+                     - self.x0.loc[V, y]) / (self.x0.loc[V, y] + epsilon)) ** 2) for V in self.listVehicleAgg for y in self.listYearsVehicle)
 
             + sum(((self.model.n[m, y]*10**6 - self.Network_Demand.loc[m, y]) / (self.Network_Demand.loc[m, y] + epsilon)) ** 2 for m in
                   self.listMetals for y in self.listYears)
@@ -1083,8 +1089,8 @@ class IAM_Metal_Optimisation_EV :
         self.model.ConstraintNetworkSubstitution = ConstraintList()
         for y in self.listYears:
             self.model.ConstraintNetworkSubstitution.add(
-                (self.model.n['Aluminium', y] * 2 + self.model.n['Copper', y])*10**6
-                == self.Network_Demand.loc['Aluminium', y] * 2 + self.Network_Demand.loc['Copper', y]
+                (self.model.n['Aluminium', y] * 3.4 + self.model.n['Copper', y])*10**6
+                == self.Network_Demand.loc['Aluminium', y] * 3.4 + self.Network_Demand.loc['Copper', y]
             )
 
     def CstrEnergyDemand(self):

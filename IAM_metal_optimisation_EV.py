@@ -174,11 +174,18 @@ class IAM_Metal_Optimisation_EV :
         # Tab of future metal production according to different scenarios from 2020 to 2050 [t/yr]
         #self.Prod = pd.read_excel(self.folder_path + 'Future metal prod.xlsx', index_col=0)
 
+        # Data to estimate the metal demand from the rest of the economy
         # Importation of GDP projections for a specific model, scenario ssp-rcp, at a specific year (from IAM)
         self.GDP_folder = self.folder_path + 'GDP IAM/GDP ' + self.model_s0 + '_' + self.scenario
-
         # Importation of GDP datas for a specific model, ssp, at a specific year
         self.Population_folder = self.folder_path + 'Population IAM/Population ' + model_s0 + '_' + self.scenario
+        # Demand from the rest of the economy in the literature
+        self.OSD_litt = pd.read_excel(self.folder_path + 'OSD litt.xlsx', index_col=0)
+        self.OSD_litt_byScenario = pd.read_excel(self.folder_path + 'OSD litt.xlsx', sheet_name='OSD by scenario',
+                                                 index_col=0)
+        # Estimation of the metal intensity reduction in t/USD in the literature (OECD)
+        self.MetalIntensityReduction = pd.read_excel(self.folder_path + 'OSD litt.xlsx', sheet_name='Metal_Intensity_Reduction',
+                                                 index_col=0)
 
         # Folder used to stock initial Power capacity projections for specific model_s0 and scenario, for various regions
         self.folderIAM = self.folder_path + 'Power Capacity IAM/Dossier s0 ' + self.model_s0 + '_' + self.scenario
@@ -767,8 +774,8 @@ class IAM_Metal_Optimisation_EV :
                 listVehicleDisag.append('ICEV')
             else:
                 for b in self.listBatteryDisag:
-                    listVehicleDisag.append(f"{v}_PM_{b}")
-                    listVehicleDisag.append(f"{v}_Ind_{b}")
+                    listVehicleDisag.append(f"{v}_PM_Cu_{b}")
+                    listVehicleDisag.append(f"{v}_Ind_Cu_{b}")
                     listVehicleDisag.append(f"{v}_PM_Al_{b}")
                     listVehicleDisag.append(f"{v}_Ind_Al_{b}")
         self.listVehicleDisag = listVehicleDisag
@@ -961,13 +968,67 @@ class IAM_Metal_Optimisation_EV :
                     # Create a variable for the demand at the previous year
                     previous_demand = OSD[self.listDecades[d - 1]].loc[m]
                     # Calculate the World GDP increase with a sum for every region
-                    GDP_growth = sum(self.GDP[r][self.listDecades[d]].loc['GDP..PPP'] for r in self.listRegions) / sum(
-                        self.GDP[r][self.listDecades[d - 1]].loc['GDP..PPP'] for r in self.listRegions) - 1.3/100*10
+                    GDP_growth = (sum(self.GDP[r][self.listDecades[d]].loc['GDP..PPP'] for r in self.listRegions) / sum(
+                        self.GDP[r][self.listDecades[d - 1]].loc['GDP..PPP'] for r in self.listRegions)
+                                  - self.MetalIntensityReduction[self.listDecades[d]].loc['Metal_Intensity_Reduction'])
+
                     # Calculate Final demand with the previous one and GDP increase
                     if GDP_growth > 0 :
                         OSD[self.listDecades[d]].loc[m] = previous_demand * GDP_growth
                     else :
                         OSD[self.listDecades[d]].loc[m] = previous_demand
+
+            # 3. For available data, replace OSD by data from the literature
+
+            # Correction with available data for the metal m in the literature of future OSD
+            for m in self.OSD_litt.index:
+                for d in self.listDecades[1:]:
+                    OSD[d].loc[m] = self.OSD_litt[d].loc[m]
+
+            # Correction with projections from IEA, matching scenario
+            OSD_ScenarioIEA = self.OSD_litt_byScenario.loc[
+                self.OSD_litt_byScenario['Scenario'] == self.scenarioIEA]
+            for m in OSD_ScenarioIEA.index:
+                for d in self.listDecades[1:]:
+                    OSD[d].loc[m] = OSD_ScenarioIEA[d].loc[m]
+
+            # Correction with projections for different SSP, matching scenario
+            OSD_ScenarioSSP = self.OSD_litt_byScenario.loc[
+                self.OSD_litt_byScenario['Scenario'] == self.scenario[:4]]  # Match with the corresponding ssp
+            for m in OSD_ScenarioSSP.index:
+                for d in self.listDecades[1:]:
+                    OSD[d].loc[m] = OSD_ScenarioSSP[d].loc[m]
+
+            
+            # 2.2 Estimate OSD by year until 2050, based on Population growth only for silver
+
+            # Creation of the Population dictionary
+            excelPop = [f for f in os.listdir(self.Population_folder) if
+                        f.endswith('xlsx')]  # Reads the folder with excel files of Pop from IAM dataset
+
+            '''
+            # Creation of a dictionary of dataFrame to stock datas from Excel files
+            Pop = {}
+
+            for region_name, file in zip(self.listRegions, excelPop):
+                filePopbyRegion = os.path.join(self.Population_folder, file)  # copies datas from files in dataFrames
+                Pop[region_name] = pd.read_excel(filePopbyRegion,
+                                                 index_col=0)  # copies the dataFrames in dic, with first col as index
+
+            # Initialise a final demand dF to stock future demand in metals, with Pop increase
+            # Demand_byYear = {year: Demand[year].copy() for year in listDecades}
+
+            m ='Silver'
+            # Loop through list of years, excluding the first year 2020
+            for d in range(1, len(self.listDecades)):
+                # Create a variable for the demand at the previous year
+                previous_demand = OSD[self.listDecades[d - 1]].loc[m]
+                # Calculate the World Pop increase with a sum for every region
+                Pop_growth = sum(Pop[r][self.listDecades[d]].loc['Population'] for r in self.listRegions) / sum(
+                    Pop[r][self.listDecades[d - 1]].loc['Population'] for r in self.listRegions)
+                # Calculate Final demand with the previous one and Pop increase
+                OSD[self.listDecades[d]].loc[m] = previous_demand * Pop_growth
+            '''
 
         elif growth == 'Pop':
 
@@ -998,30 +1059,6 @@ class IAM_Metal_Optimisation_EV :
                         Pop[r][self.listDecades[d - 1]].loc['Population'] for r in self.listRegions)
                     # Calculate Final demand with the previous one and Pop increase
                     OSD[self.listDecades[d]].loc[m] = previous_demand * Pop_growth
-
-        # 3. For available data, replace OSD by data from the literature
-
-        OSD_litt = pd.read_excel(self.folder_path + 'OSD litt.xlsx', index_col=0)
-
-        # Correction with available data for the metal m in the literature of future OSD
-        for m in OSD_litt.index:
-            for d in self.listDecades[1:]:
-                OSD[d].loc[m] = OSD_litt[d].loc[m]
-
-        OSD_litt_byScenario = pd.read_excel(self.folder_path + 'OSD litt.xlsx', sheet_name='OSD by scenario', index_col=0)
-
-        # Correction with projections from IEA, matching scenario
-        OSD_ScenarioIEA = OSD_litt_byScenario.loc[OSD_litt_byScenario['Scenario'] == self.scenarioIEA]
-        for m in OSD_ScenarioIEA.index:
-            for d in self.listDecades[1:]:
-                OSD[d].loc[m] = OSD_ScenarioIEA[d].loc[m]
-
-        # Correction with projections for different SSP, matching scenario
-        OSD_ScenarioSSP = OSD_litt_byScenario.loc[
-            OSD_litt_byScenario['Scenario'] == self.scenario[:4]]  # Match with the corresponding ssp
-        for m in OSD_ScenarioSSP.index:
-            for d in self.listDecades[1:]:
-                OSD[d].loc[m] = OSD_ScenarioSSP[d].loc[m]
 
         self.OSD = OSD
 
@@ -1089,8 +1126,8 @@ class IAM_Metal_Optimisation_EV :
         self.model.ConstraintNetworkSubstitution = ConstraintList()
         for y in self.listYears:
             self.model.ConstraintNetworkSubstitution.add(
-                (self.model.n['Aluminium', y] * 3.4 + self.model.n['Copper', y])*10**6
-                == self.Network_Demand.loc['Aluminium', y] * 3.4 + self.Network_Demand.loc['Copper', y]
+                (self.model.n['Aluminium', y] * 2 + self.model.n['Copper', y])*10**6
+                == self.Network_Demand.loc['Aluminium', y] * 2 + self.Network_Demand.loc['Copper', y]
             )
 
     def CstrEnergyDemand(self):
@@ -1232,10 +1269,11 @@ class IAM_Metal_Optimisation_EV :
                 for r in self.listRegions
             ) / 10
 
-        def network_demand(m, d):
+        def network_storage_demand(m, d):
             return (sum(
                 self.model.n[m, self.listYearsTot[5 + i + 10 * d]]*10**6 for i in self.list_i)
-                    / (self.MetalData['RR (%) Prod'].loc[m] * 10))
+                    / (self.MetalData['RR (%) Prod'].loc[m] * 10)
+                    + self.Storage_Demand[self.listDecades[d]].loc[m] / self.MetalData['RR (%) Prod'].loc[m])
 
         def vehicle_demand(m, d):
             if d == 1:
@@ -1269,12 +1307,10 @@ class IAM_Metal_Optimisation_EV :
         def max_production(m, d):
             return max(
                 self.Prod[self.listDecades[d]].loc[m]
-                - self.Storage_Demand[self.listDecades[d]].loc[m] / self.MetalData['RR (%) Prod'].loc[m]
                 - self.OSD[self.listDecades[d]].loc[m],
                 self.Alpha / 100
                 * (
-                        self.OSD[self.listDecades[d]].loc[m]
-                        + self.Storage_Demand[self.listDecades[d]].loc[m] / self.MetalData['RR (%) Prod'].loc[m]
+                        self.Prod[self.listDecades[d]].loc[m]
                 ),
             )
 
@@ -1283,13 +1319,13 @@ class IAM_Metal_Optimisation_EV :
         for m in self.listMetals:
             for d in range(1, len(self.listDecades)):
                 demand_renewable = renewable_demand(m, d)
-                demand_network = network_demand(m, d)
+                demand_network_storage = network_storage_demand(m, d)
                 demand_vehicle = vehicle_demand(m, d)
                 production_capacity = max_production(m, d)
 
                 # Add constraint
                 self.model.Constraint_DemandByYear.add(
-                    demand_renewable + demand_network + demand_vehicle
+                    demand_renewable + demand_network_storage + demand_vehicle
                     <= production_capacity + self.model.Mining_relax[m, self.listDecades[d]]
                 )
 

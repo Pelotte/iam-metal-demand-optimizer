@@ -17,21 +17,8 @@ import pandas as pd
 import numpy as np
 import os
 from pyomo.environ import *
-import pyomo as po
-# Import ipopt solver
-import cyipopt as ipopt
-
-# Choose the solver for the optimization
-#opt = SolverFactory('ipopt', executable="C:/Users/Penel/Ipopt-3.11.1-win64-intel13.1/bin/ipopt.exe")
-#opt.options['max_iter'] = 10000  # define maximum number of optimization iterations
 
 opt = SolverFactory('cplex')
-opt.options['qpmethod'] = 2
-# Define mipgap, as relative difference to optimal solution
-opt.options['mip_tolerances_mipgap'] = 0.05  # Écart relatif de 5 %
-opt.options['optimality'] = 1
-# Adjust convergence parameters
-opt.options['barrier convergetol'] = 1e-2  # Set barrier feasibility tolerance
 
 class IAM_Metal_Optimisation_EV :
     '''
@@ -49,83 +36,110 @@ class IAM_Metal_Optimisation_EV :
         '''
         This function aims to initialize the opti code variables and parameters.
 
-        :param folder_path: [string] path to external datas used in the code, finish by /
-        :param result_path: [string] path to stock results, finish by /
+        :param folder_path: [string] directory path to the external data used in the code
+        :param result_path: [string] directory path to stock results
         :param model_s0: [string] Integrated Assessment Model (IAM) that wants to be studied
         (AIM..CGE, GCAM4, IMAGE, MESSAGE-GLOBIOM, REMIND-MAGPIE, WITCH-GLOBIOM)
         :param scenario: [string] scenario of Shared Socioeconomic Pathway and  Representative Concentration Pathway
         (SSP-RCP) that wants to be studied
-        :param ModelisationType: [string] 'Init' to study initial IAM power mix metal demand
-                                 'Opti' to generate an optimisation of IAM power mix
+        :param ModelisationType: [string] 'Init' to study metal demand linked to initial market shares of technologies
+                                 'Opti' to generate an optimisation of market shares of technologies
         :param Alpha: [int] percentage value of acceptable share of metal energy demand in comparison to OSD and Storage_Demand
         for the optimisation metal production by year constraint (See CstrMetalMining) ; original value is 5
         :param ResLimit : [string] Limit for the optimisation of cumulated metal demand : "Reserves" or "Resources" ;
         original value is "Resources"
         '''
-        self.folder_path = folder_path # Folder path for external datas used
-        self.result_path = result_path # Folder path to save results
+
+        # 1. Parameters chosen by the user
+
+        self.folder_path = folder_path # Directory path to the external data
+        self.result_path = result_path # Directory path to save results
         self.model_s0 = model_s0 # Chosen IAM to study
         self.scenario = scenario # Chosen scenario ssp-rcp to study
         self.ResLimit = ResLimit # Chosen limit for cumulated metal demand in 2050 ("Reserves" or "Resources")
-        # Choose to study the demand in metal of the initial IAM scenario ("Init") or with an optimisation ("Opti")
+        # Choose to study the metal demand with initial market shares of technologies ("Init")
+        # or with an optimisation of market shares to minimize metal constraints ("Opti")
         self.ModelisationType = ModelisationType
-        # Acceptable share of metal energy demand in comparison to OSD and Storage_Demand for the optimisation
+        # Share of production reserved for the energy transition (energy, electric vehicles, grid, storage)
         self.Alpha = Alpha
 
-        # Lifetime of a vehicle
-        self.Lifetime_V = 12
-
         # Penalisation by M of the relaxation variable in the objective function
-        self.M = 10**6
+        self.M = 10 ** 6
         # Folder path for results according to the modelisation type chosen
-        self.Res_folder = self.result_path+ self.ModelisationType
+        self.Res_folder = self.result_path + self.ModelisationType
 
-        # Definition of the scope of this study in terms of models, scenarios, regions, decades, metals and techno
-        # External excel defining the scope of the study
-        studyScope = self.folder_path + 'Scope of the study.xlsx'
+        # 2. Definition of the scope of this study
+
+        studyScope = self.folder_path + 'Scope of the study.xlsx' # External excel defining the scope of the study
 
         with pd.ExcelFile(studyScope) as file:
 
-            # Power capacities
+            # General scope
 
             # list of the IAM models you can optimise
             self.listModels = pd.read_excel(file, 'model', index_col=0).squeeze().tolist()
             # list of the SSP - RCP scenarios you can optimise (SSP3 excluded)
             self.listScenarios = pd.read_excel(file, 'scenario', index_col=0).squeeze().tolist()
-            # List of the 5 regions studied by the IAM
-            self.listRegions = pd.read_excel(file, 'region', index_col=0).squeeze().tolist()
-            # List of the decades studied
-            self.listDecades = pd.read_excel(file, 'decades', index_col=0).squeeze().astype(str).tolist()
             # List of the metals studied
             self.listMetals = pd.read_excel(file, 'metals', index_col=0).squeeze().tolist()
-            # List of the sub-technologies studied
+            # List of the decades studied
+            self.listDecades = pd.read_excel(file, 'decades', index_col=0).squeeze().astype(str).tolist()
+
+            # Power capacities
+
+            # List of the 5 regions studied by the IAM for power capacities
+            self.listRegions = pd.read_excel(file, 'region', index_col=0).squeeze().tolist()
+            # List of the initial energy sources in IAM
+            self.listTechnoAgg = pd.read_excel(file, 'technologies flex', index_col=0).squeeze().tolist()
+            # List of the disaggregated sub-technologies of energy sources studied
             self.listTechno = pd.read_excel(file, 'technologies precises', index_col=0).squeeze().tolist()
-            # List of the initial disaggregated technologies studied
-            self.listTechnoAgg= pd.read_excel(file, 'technologies flex', index_col=0).squeeze().tolist()
 
             # Vehicles
 
-            # List of the aggregated vehicles studied
+            # List of the aggregated vehicle types studied
             self.listVehicleType = ['ICEV', 'PHEV', 'BEV']
-            # List of the disaggregated batteries studied
-            self.listBatteryDisag = pd.read_excel(file, 'EV battery disag', index_col=0).squeeze().tolist()
             # List of the aggregated batteries studied
             self.listBatteryAgg = pd.read_excel(file, 'EV battery ag', index_col=0).squeeze().tolist()
-            # List of the disaggregated motors studied
-            self.listMotorDisag = pd.read_excel(file, 'EV motor disag', index_col=0).squeeze().tolist()
+            # List of the disaggregated sub-technologies of batteries studied
+            self.listBatteryDisag = pd.read_excel(file, 'EV battery disag', index_col=0).squeeze().tolist()
             # List of the aggregated motors studied
             self.listMotorAgg = pd.read_excel(file, 'EV motor ag', index_col=0).squeeze().tolist()
+            # List of the disaggregated  sub-technologies of motors studied
+            self.listMotorDisag = pd.read_excel(file, 'EV motor disag', index_col=0).squeeze().tolist()
 
         # Create a list of Years from the first decade to the last one
         listYears = [str(year) for year in range(int(self.listDecades[0]), int(self.listDecades[-1]) + 1)]
         self.listYears = listYears
-
+        # List of years in a decade
         self.list_i = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
-        # List of the decades with an additional past one (ex : from 2020, add 2010)
-        listDecadeswPast = self.listDecades.copy()
-        listDecadeswPast.insert(0, str(int(self.listDecades[0]) - 10))
-        self.listDecadeswPast = listDecadeswPast
+        # 3. Data from IAM projections for various SSP-RCP, taken from the IIASA SSP-Database
+
+        # Folder path for initial cumulated power capacity projections by energy sources, regions and decade
+        self.folderIAM = self.folder_path + 'Power Capacity IAM/Dossier s0 ' + self.model_s0 + '_' + self.scenario
+        # Define the folder with CF data from IAM
+        self.CF_folder = self.folder_path + 'Capacity Factor IAM/FC ' + self.model_s0 + '_' + self.scenario
+        # Folder path for GDP projections by decade
+        self.GDP_folder = self.folder_path + 'GDP IAM/GDP ' + self.model_s0 + '_' + self.scenario
+        # Folder path for population projections by decade
+        self.Population_folder = self.folder_path + 'Population IAM/Population ' + model_s0 + '_' + self.scenario
+
+        # 4. Data from literature linked to power capacities
+
+        # Import data for biomass availability by decade [GW], for different scenario
+        self.Biomass_availability = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx', sheet_name = 'Biomass_Avail' , index_col=0)
+        # Import data for hydroelectricity availability by region [GW], for different scenario
+        self.Hydro_availability = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx', sheet_name = 'Hydro_Avail',index_col=0)
+
+        # Import charging factors (CF) of energy sources from the literature
+        self.CF_from_litt = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx', sheet_name = 'CF_Litt', index_col=0)
+        # Import matrix for corresponding CF of aggregated and disaggregated energy sources
+        CF_Flex_Matrix_Init_Disag = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx', sheet_name = 'CF_Flexibility_Matrix', index_col=0)
+        self.CF_Flex_Matrix_Disag = CF_Flex_Matrix_Init_Disag.sort_values(by='Techno ') # Rearrange matrix in the alphabetic order of technologies
+
+        # Import the matrix of correspondence between aggregated and disaggregated energy sources
+        self.Pow_Flex_Matrix = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx',
+                                             sheet_name='Power_Flexibility_Matrix', index_col=0)
 
         # Create a list to store fossil technologies
         self.listTechno_Foss = []
@@ -133,99 +147,73 @@ class IAM_Metal_Optimisation_EV :
         for techno in self.listTechno:
             if "Foss" in techno:
                 self.listTechno_Foss.append(techno)
-
-        # Create a list to store renewable and carbon neutral technologies
+        # Create a list to store renewable and carbo-neutral technologies
         self.listTechno_Ren = []
         # Iterate through the list of technologies and append the names of those not containing "Foss"
         for techno in self.listTechno:
             if "Foss" not in techno:
                 self.listTechno_Ren.append(techno)
 
-        # Import general datas on metal : resources, reserves, 2020 production, recovery rates
-        self.MetalData = pd.read_excel(self.folder_path + 'Metal data.xlsx', index_col=0)
+        # 5. Data from literature linked to electric vehicles (EV)
 
-        # Creation of a list of metals with known ResLimit (exclusion of metal with unknown reserve or resources)
-        self.listMetals_knownRes = self.listMetals.copy() # Create a copy of all the metals studied
-        for metal in self.listMetals:
-            if pd.isna(self.MetalData[self.ResLimit].loc[metal]): # If the data for ResLimit is missing
-                self.listMetals_knownRes.remove(metal)  # Remove the metal
-
-        # Import datas for total 2050 biomass availability [GW], according to various scenario
-        self.Biomass_availability = pd.read_excel(self.folder_path + 'Future techno availability.xlsx', sheet_name = 'Biomass' , index_col=0)
-
-        # Import datas for remaining hydroelectricity availability, for various two economic and ecologic scenarios, for each regions [GW]
-        self.Hydro_availability = pd.read_excel(self.folder_path + 'Future techno availability.xlsx', sheet_name = 'Hydro',index_col=0)
-
-        # Import CF from the literature
-        self.CF_from_litt = pd.read_excel(self.folder_path + 'CF_from_litt.xlsx', index_col=0)
-
-        # Import matrix for corresponding CF of aggregated and disaggregated sub-technologies
-        Matrix_CF_Init_disag = pd.read_excel(self.folder_path + 'Matrix_CF_disagg.xlsx',
-                                             index_col=0)
-        self.Matrix_CF_disag = Matrix_CF_Init_disag.sort_values(by='Techno ') # Rearrange matrix in the alphabetic order of technologies
-
-        # Import metal consumption by decade for storage in [t/decade] (from IEA)
-        self.Storage_Demand_init = pd.read_excel(self.folder_path + 'Demand_Storage&Network_IEA.xlsx', index_col=0)
-
-        # Import initial metal consumption by decade for network in [t/decade] (from IEA)
-        self.Network_Demand_init = pd.read_excel(self.folder_path + 'Demand_Storage&Network_IEA.xlsx',
-                                            sheet_name='Demand_Network', index_col=0)
-
-        # Tab of future metal production according to different scenarios from 2020 to 2050 [t/yr]
-        #self.Prod = pd.read_excel(self.folder_path + 'Future metal prod.xlsx', index_col=0)
-
-        # Data to estimate the metal demand from the rest of the economy
-        # Importation of GDP projections for a specific model, scenario ssp-rcp, at a specific year (from IAM)
-        self.GDP_folder = self.folder_path + 'GDP IAM/GDP ' + self.model_s0 + '_' + self.scenario
-        # Importation of GDP datas for a specific model, ssp, at a specific year
-        self.Population_folder = self.folder_path + 'Population IAM/Population ' + model_s0 + '_' + self.scenario
-        # Demand from the rest of the economy in the literature
-        self.OSD_litt = pd.read_excel(self.folder_path + 'OSD litt.xlsx', index_col=0)
-        self.OSD_litt_byScenario = pd.read_excel(self.folder_path + 'OSD litt.xlsx', sheet_name='OSD by scenario',
-                                                 index_col=0)
-        # Estimation of the metal intensity reduction in t/USD in the literature (OECD)
-        self.MetalIntensityReduction = pd.read_excel(self.folder_path + 'OSD litt.xlsx', sheet_name='Metal_Intensity_Reduction',
-                                                 index_col=0)
-
-        # Folder used to stock initial Power capacity projections for specific model_s0 and scenario, for various regions
-        self.folderIAM = self.folder_path + 'Power Capacity IAM/Dossier s0 ' + self.model_s0 + '_' + self.scenario
-
-        # Import the matrix of correspondence between Techno and Techno Init
-        self.TechnoMatrix = pd.read_excel(self.folder_path + 'Techno Matrix.xlsx', index_col=0)
-
-        # Import the matrix of correspondence between TechnoEV agg and Techno EV disag
-        self.TechnoMatrixEV = pd.read_excel(self.folder_path + 'Techno Matrix.xlsx', sheet_name='Techno matrix EV', index_col=0)
-
-        self.MS_Vehicle_Type = pd.read_excel(self.folder_path + 'Market Share in time EV.xlsx', sheet_name='MS_Vehicle',
-                                        index_col=0)
-        # Import market share of EV battery type, in percentage, by battery, by year
-        self.MS_Battery = pd.read_excel(self.folder_path + 'Market Share in time EV.xlsx', sheet_name='MS_Battery', index_col=0)
-        # Import market share of EV motor type, in percentage, fixed in time
-        self.MS_Motor = pd.read_excel(self.folder_path + 'Market Share in time EV.xlsx', sheet_name='MS_Motor', index_col=0)
-
-        # Import metal intensity in g of metal per vehicle type
-        self.MI_VehicleType = pd.read_excel(self.folder_path + 'Metal Intensity EV.xlsx', sheet_name='MI Vehicle', index_col=0)
-        # Import metal intensity in g of metal per kWh of battery aggregated
-        self.MI_BatteryAgg = pd.read_excel(self.folder_path + 'Metal Intensity EV.xlsx', sheet_name='MI Battery pack ag',
-                                      index_col=0)
-        # Import metal intensity in g of metal per kWh of battery disaggregated
-        self.MI_BatteryDisag = pd.read_excel(self.folder_path + 'Metal Intensity EV.xlsx', sheet_name='MI Battery pack disag',
-                                         index_col=0)
-        # Import metal intensity in g of metal per kW of motor
-        self.MI_Motor = pd.read_excel(self.folder_path + 'Metal Intensity EV.xlsx', sheet_name='MI Motor', index_col=0)
-
-        # Import statistics on vehicles : kWh of battery by vehicle type, kW of motor by vehicle type
-        self.Vehicle_stat = pd.read_excel(self.folder_path + 'Metal Intensity EV.xlsx', sheet_name='Vehicle caracteristics',
-                                     index_col=0)
-
-        # Read initial recycling rates for EV metals
-        self.Initial_Recycling_Rate = pd.read_excel(self.folder_path + 'Recycling_EV.xlsx', index_col=0)
-
-        # Read scenario of evolution of recycling rates in time for EV metals
-        self.Recycling_Evolution = pd.read_excel(self.folder_path + 'Recycling_EV.xlsx', sheet_name='Recycling_Evolution',
+        # Import metal intensity of the vehicle body, per vehicle type [g/vehicle]
+        self.MI_VehicleType = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='MI_Vehicle',
                                             index_col=0)
+        # Import metal intensity of batteries, per battery type [g/kWh]
+        self.MI_Battery = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='MI_Battery',
+                                        index_col=0)
+        # Import metal intensity of motors, per motor type [g/vehicle]
+        self.MI_Motor = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='MI_Motor', index_col=0)
+        # Import market share by vehicle type [%]
+        self.MS_Vehicle_Type = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='MS_Vehicle',
+                                             index_col=0)
+        # Import market share of EV battery, by battery, by year [%]
+        self.MS_Battery = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='MS_Battery',
+                                        index_col=0)
+        # Import market share of EV motor, fixed in time [%]
+        self.MS_Motor = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='MS_Motor', index_col=0)
+        # Import statistics on vehicles : kWh of battery by vehicle type, kW of motor by vehicle type
+        self.Vehicle_stat = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='Vehicle_Stat',
+                                          index_col=0)
+        # Import the matrix of correspondence between aggregated and disaggregated EV vehicles
+        self.EV_Flex_Matrix = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='EV_flexibility_matrix', index_col=0)
+        # Import recycling rates in 2020 for EV metals [%]
+        self.Initial_Recycling_Rate = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='Recycling_2020_Rates', index_col=0)
+        # Import the evolution of recycling rates in time for EV metals, by SSP scenario
+        self.Recycling_Evolution = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='Recycling_Evolution',
+                                            index_col=0)
+        # Lifetime of a vehicle
+        self.Lifetime_V = 12
 
-    # Calculate Metal Intensity (MI) evolution in time
+        # 4. Data from literature linked to grid, storage, other sectors of the economy and metal availability
+
+        # Metal resources and reserves [t]
+        self.Reserves_Resources_Data = pd.read_excel(self.folder_path + 'Prod&Demand_Other_Sectors.xlsx',
+                                                     sheet_name='Reserves_Resources', index_col=0)
+        # Metal recovery rates, for production and resources [%]
+        self.Recovery_Rates = pd.read_excel(self.folder_path + 'Prod&Demand_Other_Sectors.xlsx',
+                                                     sheet_name='Recovery_Rates', index_col=0)
+        # Metal production in 2020 [t]
+        self.Prod_2020 = pd.read_excel(self.folder_path + 'Prod&Demand_Other_Sectors.xlsx',
+                                            sheet_name='Prod_2020', index_col=0)
+        # Creation of a list of metals with known ResLimit (exclusion of metals with unknown reserve or resources)
+        self.listMetals_knownRes = self.listMetals.copy()  # Create a copy of all the metals studied
+        for metal in self.listMetals:
+            if pd.isna(self.Reserves_Resources_Data[self.ResLimit].loc[metal]):  # If the data for ResLimit is missing
+                self.listMetals_knownRes.remove(metal)  # Remove the metal
+        # Import metal consumption by decade for storage [t/decade] (from IEA)
+        self.Storage_Demand_init = pd.read_excel(self.folder_path + 'Prod&Demand_Other_Sectors.xlsx',
+                                                 sheet_name='Demand_Storage', index_col=0)
+        # Import initial metal consumption by decade for network in [t/decade] (from IEA)
+        self.Network_Demand_init = pd.read_excel(self.folder_path + 'Prod&Demand_Other_Sectors.xlsx',
+                                                 sheet_name='Demand_Network', index_col=0)
+        # Metal demand from the rest of the economy in the literature [t/decade]
+        self.OSD_litt = pd.read_excel(self.folder_path + 'Prod&Demand_Other_Sectors.xlsx',
+                                      sheet_name='OSD_litt', index_col=0)
+        # Estimation of the metal intensity reduction of the economy in t/USD in the literature (OECD) [%]
+        self.MetalIntensityReduction = pd.read_excel(self.folder_path + 'Prod&Demand_Other_Sectors.xlsx',
+                                                     sheet_name='Metal_Intensity_Reduction', index_col=0)
+
     def Power_Metal_Intensity(self):
         '''
         Calculation of the evolution of the metal intensity of energy sources technology, according
@@ -233,10 +221,10 @@ class IAM_Metal_Optimisation_EV :
         :return: Metal intensity in tons of metal per GW of energy sources, with evolution in time [t/GW]
         '''
 
-        # Import table of metal intensities for specific sub-technologies [t/GW] according to the MI scenario chosen
-        MetalIntensity = pd.read_excel(self.folder_path + 'Metal Intensity Tech.xlsx', sheet_name = 'MI',index_col=0)
-        # Import the table of metal intensities for specific sub-technologies
-        self.MetalIntensity_Agg = pd.read_excel(self.folder_path + 'Metal Intensity Tech.xlsx', sheet_name='Aggregated MI 2010',
+        # Import metal intensities for specific energy sources [t/GW]
+        MetalIntensity = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx', sheet_name = 'MI',index_col=0)
+        # Import metal intensities for aggregated energy sources, based on actual market shares [t/GW]
+        self.MetalIntensity_Agg = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx', sheet_name='MI_Agg_2010',
                                            index_col=0)
 
         # Creation of a dictionary for the Metal Intensity of technologies over time
@@ -245,11 +233,11 @@ class IAM_Metal_Optimisation_EV :
         MetalIntensity_doc[self.listDecades[0]] = MetalIntensity
 
         # Tab of different scenario of metal intensity reduction
-        ReductionScenario = pd.read_excel(self.folder_path + 'Metal Intensity Tech.xlsx', sheet_name='MI reduction scenario',
+        ReductionScenario = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx', sheet_name='MI_reduction_scenario',
                                           index_col=0)
         # Load categorization of metals : bulk vs techno-specific
-        MetalCategorisation = pd.read_excel(self.folder_path + 'Metal Intensity Tech.xlsx',
-                                            sheet_name='Metal categorisation', index_col=0)
+        MetalCategorisation = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx',
+                                            sheet_name='Metal_categorisation', index_col=0)
         # Create sub-list of metals for each category according to the table categorization
         listBulkMetals = [m for m in self.listMetals if MetalCategorisation['Bulk metals'].loc[m] == 'x']
         listTechnoSpecificMetals = [m for m in self.listMetals if MetalCategorisation['Technology-specific'].loc[m] == 'x']
@@ -293,17 +281,14 @@ class IAM_Metal_Optimisation_EV :
         Calculate Charging Factor (CF) by sub-technology, based on initial IAM CF
         '''
 
-        # Define the folder with CF data from IAM
-        CF_folder = self.folder_path + 'Capacity Factor IAM/FC ' + self.model_s0 + '_' + self.scenario
-
         # Reads the folder with Excel files of CF from IAM dataset
         excelCF = [f for f in os.listdir(CF_folder) if f.endswith('xlsx')]
 
-        # Creation of a dictionary of dataFrame to stock final CF
+        # Creation of a dictionary of dataFrame to stock IAM CF
         CF = {}
         # Copies initially calculated CF by IAM in the dictionary
         for region_name, file in zip(self.listRegions, excelCF):
-            fileCFbyRegion = os.path.join(CF_folder, file)  # copies datas from files in dataFrames
+            fileCFbyRegion = os.path.join(CF_folder, file)  # copies data from files in dataFrames
             CF[region_name] = pd.read_excel(fileCFbyRegion,index_col=0)  # copies the dataFrames in dic
             CF[region_name] = CF[region_name].drop('Total', axis=0) # Drop the total column
 
@@ -316,34 +301,34 @@ class IAM_Metal_Optimisation_EV :
             # If Hydro not in IAM data :
             if "Hydro" not in list_CF_techno:
                 # Add CF from the literature
-                CF[region].loc["Hydro"] = self.CF_from_litt["CF from literature"].loc["Hydro"] * 100  # Add a line for hydro when not included, datas from the literature
+                CF[region].loc["Hydro"] = self.CF_from_litt["CF_Litt"].loc["Hydro"] * 100  # Add a line for hydro when not included, data from the literature
             # If Oil not in IAM data :
             if "Oil" not in list_CF_techno:
                 # Add CF from the literature
-                CF[region].loc["Oil"] = self.CF_from_litt["CF from literature"].loc["Oil"] * 100  # Add a line for oil when not included, datas from the literaturz
+                CF[region].loc["Oil"] = self.CF_from_litt["CF_Litt"].loc["Oil"] * 100  # Add a line for oil when not included, data from the literaturz
             # Correction of unlikely Biomass CF from IAM
             for decade in self.listDecades:
                 # If CF for Biomass is more than 85%
                 if CF[region][decade].loc["Biomass"] >= 0.85:
                     # Replace CF from IAM by CF from the literature
-                    CF[region][decade].loc["Biomass"] = self.CF_from_litt["CF from literature"].loc["Biomass"] * 100
+                    CF[region][decade].loc["Biomass"] = self.CF_from_litt["CF_Litt"].loc["Biomass"] * 100
             # If Geothermal not in IAM data :
             if "Geothermal" not in list_CF_techno:
                # Hypothesis of Geothermal having the same CF from IAM data than Biomass
                CF[region].loc["Geothermal"] = CF[region].loc["Biomass"]
 
             if "Wind Offshore" not in list_CF_techno:
-                CF[region].loc["Wind Offshore"] = self.CF_from_litt["CF from literature"].loc[
+                CF[region].loc["Wind Offshore"] = self.CF_from_litt["CF_Litt"].loc[
                                                       "Wind Offshore"] * 100  # Add a line for wind offshore from the literature
 
             CF[region] = CF[region].sort_index(axis=0) # Sort CF techno
 
-        # Add CF from literature for missing data
+        # Add CF_Litt for missing data
         for region in self.listRegions:
             for techno in list_CF_techno : # Loop through years included in the initial CF
                 for year in list(CF[self.listRegions[0]].columns): # Loop through techno included in the initial CF
                     if np.isnan(CF[region][year].loc[techno]):  # Replace if the value is missing
-                        CF[region][year].loc[techno] = self.CF_from_litt["CF from literature"].loc[
+                        CF[region][year].loc[techno] = self.CF_from_litt["CF_Litt"].loc[
                                                            techno] * 100  # Take values from the litt (*100 bc percentage)
 
             # Rename the line "Wind" in "Wind Onshore"
@@ -354,7 +339,7 @@ class IAM_Metal_Optimisation_EV :
         CF_disag = {}
         for region in self.listRegions:
             # Transpose the matrix with the corresponding CF techno / sub-techno matrix
-            CF_disag[region] = pd.DataFrame(self.Matrix_CF_disag.transpose() @ CF[region])
+            CF_disag[region] = pd.DataFrame(self.CF_Flex_Matrix_Disag.transpose() @ CF[region])
 
         # Change the CF of CSP for those of the literature, for the decades studied
         for region in self.listRegions:
@@ -363,7 +348,7 @@ class IAM_Metal_Optimisation_EV :
                     # if the techno is a sub-techno of solar CSP
                     if "CSP" in techno:
                         # replace the CF by the one from the literature
-                        CF_disag[region][years][techno] = self.CF_from_litt["CF from literature"].loc["CSP"] * 100
+                        CF_disag[region][years][techno] = self.CF_from_litt["CF_Litt"].loc["CSP"] * 100
 
         # Change the CF of solar to be constant in time, for the decades studied
         for region in self.listRegions:
@@ -390,10 +375,10 @@ class IAM_Metal_Optimisation_EV :
         # Creation of the initial IAM dictionary
         excelRegionsIAM = [f for f in os.listdir(self.folderIAM) if
                            f.endswith('xlsx')]  # Reads the folder with excel files from IAM dataset
-        # Creation of a dictionary of dataFrame to stock datas from Excel files
+        # Creation of a dictionary of dataFrame to stock data from Excel files
         IAM_initial_data = {}
         for region_name, file in zip(self.listRegions, excelRegionsIAM):
-            fileIAMbyRegion = os.path.join(self.folderIAM, file)  # copies datas from files in dataFrames
+            fileIAMbyRegion = os.path.join(self.folderIAM, file)  # copies data from files in dataFrames
             IAM_initial_data[region_name] = pd.read_excel(fileIAMbyRegion,
                                                           index_col=0)  # copies the dataFrames in dic, with first col as index
 
@@ -418,6 +403,11 @@ class IAM_Metal_Optimisation_EV :
             # Delete excessive lines in the dictionary
             IAM_initial_data[region] = IAM_initial_data[region].drop(IAM_initial_data[region].index[LinesToDelete],
                                                                      axis=0)
+
+        # List of the decades with an additional past one (ex : from 2020, add 2010)
+        listDecadeswPast = self.listDecades.copy()
+        listDecadeswPast.insert(0, str(int(self.listDecades[0]) - 10))
+        self.listDecadeswPast = listDecadeswPast
 
         # Stock Market Share (MS) matrix of the IAM techno and the corresponding disaggregated sub-techno
         MarketShareInit_df = {}
@@ -532,20 +522,22 @@ class IAM_Metal_Optimisation_EV :
         # Initialisation of a dataframe with metals in lines and years in columns
         Prod = pd.DataFrame(index=self.listMetals, columns=self.listYears)
 
-        # Initialise the datas from 2020 with actual known 2020 metal production
-        Prod["2020"] = self.MetalData['Production 2020 [t/yr]']
+        # Initialise the data from 2020 with actual known 2020 metal production
+        Prod["2020"] = self.Prod_2020['Prod_2020']
         # Historical annual growth production rate by metal
-        Beta = pd.read_excel(self.folder_path + 'Future Metal Production.xlsx', sheet_name = 'Beta historic', index_col=0)
+        Beta = pd.read_excel(self.folder_path + 'Prod&Demand_Other_Sectors.xlsx',
+                             sheet_name = 'Prod_Beta_Historic', index_col=0)
         # Initialise a final demand dF to stock future demand in metals, with GDP increase
         ProdFinalbyYear = {year: Prod[year].copy() for year in self.listYears}
 
         for m in self.listMetals:
-            for y in range(1, len(self.listYears)):
-                # Loop through list of years, excluding the first year 2020
-                previous_prod = ProdFinalbyYear[self.listYears[y - 1]].loc[
-                    m]  # Create a variable for the production at the previous year
-                ProdFinalbyYear[self.listYears[y]].loc[m] = previous_prod + Beta['Mean annual growth'].loc[
-                    m] * previous_prod  # Calculate production with beta increase by year
+            if isinstance(Beta['Beta'].loc[m], (int, float)):
+                for y in range(1, len(self.listYears)):
+                    # Loop through list of years, excluding the first year 2020
+                    previous_prod = ProdFinalbyYear[self.listYears[y - 1]].loc[
+                        m]  # Create a variable for the production at the previous year
+                    ProdFinalbyYear[self.listYears[y]].loc[m] = previous_prod + Beta['Beta'].loc[
+                        m] * previous_prod  # Calculate production with beta increase by year
 
         # Conversion of the dic in dF
         ProdFinalbyYear = pd.DataFrame.from_dict(ProdFinalbyYear, orient='index')
@@ -554,11 +546,11 @@ class IAM_Metal_Optimisation_EV :
         ProdFinalbyYear = ProdFinalbyYear.transpose()
 
         # Create the dataFrame with metal production other each decade
-        Prod = pd.DataFrame({'2020': self.MetalData['Production 2020 [t/yr]'], '2030': ProdFinalbyYear['2030'],
+        Prod = pd.DataFrame({'2020': self.Prod_2020['Prod_2020'], '2030': ProdFinalbyYear['2030'],
                              '2040': ProdFinalbyYear['2040'], '2050': ProdFinalbyYear['2050']})
 
         # Correction of future prod with IEA High production case projections for Cobalt, Copper, Nickel
-        Prod_litt = pd.read_excel(self.folder_path + 'Future metal production.xlsx', sheet_name='Other prod estimates', index_col=0)
+        Prod_litt = pd.read_excel(self.folder_path + 'Prod&Demand_Other_Sectors.xlsx', sheet_name='Prod_IEA_&_By_product', index_col=0)
 
         for m in Prod_litt.index:
             for d in self.listDecades:
@@ -575,8 +567,7 @@ class IAM_Metal_Optimisation_EV :
 
         if self.model_s0 in ['IMAGE', 'GCAM4']:
             # LDV Ratio
-            Ratio_LDV = pd.read_excel(self.folder_path + 'Market Share in time EV.xlsx', sheet_name='Ratio_LDV', index_col=0)
-
+            Ratio_LDV = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='Ratio_LDV', index_col=0)
             # initialize Stock_IAM
             Stock_IAM = pd.Series(dtype=float)
 
@@ -601,7 +592,7 @@ class IAM_Metal_Optimisation_EV :
         else:
 
             # Import data of stock of passenger vehicles from MATILDA
-            Stock_MATILDA = pd.read_excel(self.folder_path + 'Market Share in time EV.xlsx', sheet_name='Vehicle_Stock',
+            Stock_MATILDA = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='Vehicle_Stock',
                                           index_col=0)
 
             # Take only Vehicle Demand for the global region
@@ -734,13 +725,13 @@ class IAM_Metal_Optimisation_EV :
                         # Add market share values, with initial assumption of only copper use in motors
                         Vehicle_Growth.loc[v_PM_Batt, y] = (
                                 VehicleType_Growth.loc[v, y]
-                                * self.MS_Motor.loc['MS', 'Motor_PM']
+                                * self.MS_Motor.loc['MS', 'PM']
                                 * self.MS_Battery.loc[b, y]
                         )
 
                         Vehicle_Growth.loc[v_ind_Batt, y] = (
                                 VehicleType_Growth.loc[v, y]
-                                * self.MS_Motor.loc['MS', 'Motor_induction']
+                                * self.MS_Motor.loc['MS', 'Ind']
                                 * self.MS_Battery.loc[b, y]
                         )
         self.Vehicle_Growth = Vehicle_Growth
@@ -784,13 +775,11 @@ class IAM_Metal_Optimisation_EV :
 
         # Initial scenario uses aggregated battery data
         if self.ModelisationType == 'Init':
-            self.MI_Battery = self.MI_BatteryAgg
             self.listMotor = self.listMotorAgg
             self.listBattery = self.listBatteryAgg
             self.listVehicle = self.listVehicleAgg
         # Optimised scenario uses disaggregated battery data
         elif self.ModelisationType == 'Opti':
-            self.MI_Battery = self.MI_BatteryDisag
             self.listMotor = self.listMotorDisag
             self.listBattery = self.listBatteryDisag
             self.listVehicle = self.listVehicleDisag
@@ -835,8 +824,8 @@ class IAM_Metal_Optimisation_EV :
                 if b in v:
                     for v_agg in self.listVehicleType:
                         if v_agg in v:
-                            for m in self.MI_BatteryAgg.index:
-                                MI_VehicleAgg.loc[m][v] += self.MI_BatteryAgg.loc[m][b] * self.Vehicle_stat.loc['Battery'][
+                            for m in self.MI_Battery.index:
+                                MI_VehicleAgg.loc[m][v] += self.MI_Battery.loc[m][b] * self.Vehicle_stat.loc['Battery'][
                                     v_agg]
             # Add metal intensities of vehicles by motor type
             for mo in self.listMotor:
@@ -938,12 +927,12 @@ class IAM_Metal_Optimisation_EV :
                                                         self.MetalIntensity_doc['2020'][t].loc[m]
         self.PowerMetalDemand_y = PowerMetalDemand_y
 
-        # Initialise the datas from 2020 with actual known metal prod in 2020 - metal demand for the transition [t/y]
+        # Initialise the data from 2020 with actual known metal prod in 2020 - metal demand for the transition [t/y]
         for m in self.listMetals:
             # Total prod in 2020 - Metal for grid and storage - Metal for powCap installation in 2020 - Metal for EV
-            InitialOSD = ((self.Prod['2020'].loc[m] - (self.Storage_Demand['2020'].loc[m]+self.Network_Demand['2020'].loc[m]) / self.MetalData['RR (%) Prod'].loc[m]
-                          -self.PowerMetalDemand_y['2020'].loc[m] / self.MetalData['RR (%) Prod'].loc[m])
-                          - sum(self.x0.loc[v, '2020'] * self.MI_VehicleAgg.loc[m][v] / self.MetalData['RR (%) Prod'].loc[m] for v in self.listVehicleAgg))
+            InitialOSD = ((self.Prod['2020'].loc[m] - (self.Storage_Demand['2020'].loc[m]+self.Network_Demand['2020'].loc[m]) / self.Recovery_Rates['RR_Prod'].loc[m]
+                          -self.PowerMetalDemand_y['2020'].loc[m] / self.Recovery_Rates['RR_Prod'].loc[m])
+                          - sum(self.x0.loc[v, '2020'] * self.MI_VehicleAgg.loc[m][v] / self.Recovery_Rates['RR_Prod'].loc[m] for v in self.listVehicleAgg))
             # Change OSD value only if it is above 0, if not : = 0.
             if InitialOSD > 0:
                 OSD["2020"].loc[m] = InitialOSD
@@ -954,10 +943,10 @@ class IAM_Metal_Optimisation_EV :
             # Creation of the GDP dictionary
             excelGDP = [f for f in os.listdir(self.GDP_folder) if
                         f.endswith('xlsx')]  # Reads the folder with excel files of GDP from IAM dataset
-            # Creation of a dictionary of dataFrame to stock GDP datas from IAM Excel files
+            # Creation of a dictionary of dataFrame to stock GDP data from IAM Excel files
             self.GDP = {}
             for region_name, file in zip(self.listRegions, excelGDP):
-                fileGDPbyRegion = os.path.join(self.GDP_folder, file)  # copies datas from GDP files by region in dF
+                fileGDPbyRegion = os.path.join(self.GDP_folder, file)  # copies data from GDP files by region in dF
                 self.GDP[region_name] = pd.read_excel(fileGDPbyRegion,
                                                       index_col=0)  # copies the dataFrames in dic, with first col as index
 
@@ -981,10 +970,23 @@ class IAM_Metal_Optimisation_EV :
             # 3. For available data, replace OSD by data from the literature
 
             # Correction with available data for the metal m in the literature of future OSD
-            for m in self.OSD_litt.index:
-                for d in self.listDecades[1:]:
-                    OSD[d].loc[m] = self.OSD_litt[d].loc[m]
+            for m in self.OSD_litt.index.unique():  # Iterate over unique metals
 
+                # Select all rows for metal 'm'
+                subset = self.OSD_litt.loc[[m]] if isinstance(self.OSD_litt.loc[m], pd.Series) else self.OSD_litt.loc[m]
+
+                # Apply filtering
+                selected_rows = subset[
+                    (subset['Scenario'] == 'Constant') |
+                    (subset['Scenario'] == self.scenarioIEA) |
+                    (subset['Scenario'] == self.scenario[:4])
+                    ]
+
+                # Update OSD values from the literature
+                for d in self.listDecades[1:]:
+                    OSD[d].loc[m] = selected_rows[d]
+
+            '''
             # Correction with projections from IEA, matching scenario
             OSD_ScenarioIEA = self.OSD_litt_byScenario.loc[
                 self.OSD_litt_byScenario['Scenario'] == self.scenarioIEA]
@@ -998,36 +1000,6 @@ class IAM_Metal_Optimisation_EV :
             for m in OSD_ScenarioSSP.index:
                 for d in self.listDecades[1:]:
                     OSD[d].loc[m] = OSD_ScenarioSSP[d].loc[m]
-
-            
-            # 2.2 Estimate OSD by year until 2050, based on Population growth only for silver
-
-            # Creation of the Population dictionary
-            excelPop = [f for f in os.listdir(self.Population_folder) if
-                        f.endswith('xlsx')]  # Reads the folder with excel files of Pop from IAM dataset
-
-            '''
-            # Creation of a dictionary of dataFrame to stock datas from Excel files
-            Pop = {}
-
-            for region_name, file in zip(self.listRegions, excelPop):
-                filePopbyRegion = os.path.join(self.Population_folder, file)  # copies datas from files in dataFrames
-                Pop[region_name] = pd.read_excel(filePopbyRegion,
-                                                 index_col=0)  # copies the dataFrames in dic, with first col as index
-
-            # Initialise a final demand dF to stock future demand in metals, with Pop increase
-            # Demand_byYear = {year: Demand[year].copy() for year in listDecades}
-
-            m ='Silver'
-            # Loop through list of years, excluding the first year 2020
-            for d in range(1, len(self.listDecades)):
-                # Create a variable for the demand at the previous year
-                previous_demand = OSD[self.listDecades[d - 1]].loc[m]
-                # Calculate the World Pop increase with a sum for every region
-                Pop_growth = sum(Pop[r][self.listDecades[d]].loc['Population'] for r in self.listRegions) / sum(
-                    Pop[r][self.listDecades[d - 1]].loc['Population'] for r in self.listRegions)
-                # Calculate Final demand with the previous one and Pop increase
-                OSD[self.listDecades[d]].loc[m] = previous_demand * Pop_growth
             '''
 
         elif growth == 'Pop':
@@ -1038,11 +1010,11 @@ class IAM_Metal_Optimisation_EV :
             excelPop = [f for f in os.listdir(self.Population_folder) if
                         f.endswith('xlsx')]  # Reads the folder with excel files of Pop from IAM dataset
 
-            # Creation of a dictionary of dataFrame to stock datas from Excel files
+            # Creation of a dictionary of dataFrame to stock data from Excel files
             Pop = {}
 
             for region_name, file in zip(self.listRegions, excelPop):
-                filePopbyRegion = os.path.join(self.Population_folder, file)  # copies datas from files in dataFrames
+                filePopbyRegion = os.path.join(self.Population_folder, file)  # copies data from files in dataFrames
                 Pop[region_name] = pd.read_excel(filePopbyRegion,
                                                  index_col=0)  # copies the dataFrames in dic, with first col as index
 
@@ -1100,18 +1072,18 @@ class IAM_Metal_Optimisation_EV :
 
         self.model.objective = Objective(
             expr=
-            sum(((((sum(self.TechnoMatrix[t].loc[T] * self.model.s[r,t,d] for t in self.listTechno))
+            sum(((((sum(self.Pow_Flex_Matrix[t].loc[T] * self.model.s[r,t,d] for t in self.listTechno))
                    -self.s0[r].loc[T][d])/(self.s0[r].loc[T][d]+epsilon))**2)
                 for r in self.listRegions for T in self.listTechnoAgg for d in self.listDecades)
 
 
-            + sum((((sum(self.TechnoMatrixEV[v].loc[V] * self.model.x[v, y] for v in self.listVehicle)
+            + sum((((sum(self.EV_Flex_Matrix[v].loc[V] * self.model.x[v, y] for v in self.listVehicle)
                      - self.x0.loc[V, y]) / (self.x0.loc[V, y] + epsilon)) ** 2) for V in self.listVehicleAgg for y in self.listYearsVehicle)
 
             + sum(((self.model.n[m, y]*10**6 - self.Network_Demand.loc[m, y]) / (self.Network_Demand.loc[m, y] + epsilon)) ** 2 for m in
                   self.listMetals for y in self.listYears)
 
-            + sum(self.M * (self.model.Res_relax[m] / self.MetalData[self.ResLimit].loc[m]) for m in self.listMetals_knownRes)
+            + sum(self.M * (self.model.Res_relax[m] / self.Reserves_Resources_Data[self.ResLimit].loc[m]) for m in self.listMetals_knownRes)
             + sum(self.M * (self.model.Mining_relax[m, d] / self.Prod[d].loc[m]) for m in self.listMetals for d in self.listDecades)
             + sum(self.M * (self.model.CoherentMix_relax[r, t_r, d]) for r in self.listRegions for t_r in self.listTechno_Ren for d in self.listDecades)
             #+ sum(self.M * (self.model.Stock_relax[vT, y]) ** 2 for vT in self.listVehicleType for y in self.listYearsVehicle)
@@ -1143,7 +1115,7 @@ class IAM_Metal_Optimisation_EV :
         for r in self.listRegions:
             for d in self.listDecades:
                 self.model.ConstraintEnergyDemand.add(
-                    sum(sum(self.TechnoMatrix[t].loc[T] * self.model.s[r, t, d] for t in self.listTechno)
+                    sum(sum(self.Pow_Flex_Matrix[t].loc[T] * self.model.s[r, t, d] for t in self.listTechno)
                         * self.CF_disag[r].loc[T][d] for T in self.listTechnoAgg)
                     >= sum(self.s0[r].loc[T][d] * self.CF_disag[r].loc[T][d] for T in self.listTechnoAgg)
                 )
@@ -1185,7 +1157,7 @@ class IAM_Metal_Optimisation_EV :
         # The initial EV mix of 2020 cannot be changed
         for V in self.listVehicleAgg:
             for y in self.listYearsVehicle[:3]:
-                self.model.constraintEVCoherence2020.add(sum(self.TechnoMatrixEV[v].loc[V] * self.model.x[v, y]
+                self.model.constraintEVCoherence2020.add(sum(self.EV_Flex_Matrix[v].loc[V] * self.model.x[v, y]
                                                              for v in self.listVehicle)
                                                          == self.x0.loc[V, y])
 
@@ -1194,7 +1166,7 @@ class IAM_Metal_Optimisation_EV :
         # The initial technological mix of 2020 cannot be changed
         for r in self.listRegions:
             for T in self.listTechnoAgg:
-                self.model.constraintMixCoherence2020.add(sum(self.TechnoMatrix[t].loc[T] *self.model.s[r,t,'2020'] for t in self.listTechno)
+                self.model.constraintMixCoherence2020.add(sum(self.Pow_Flex_Matrix[t].loc[T] *self.model.s[r,t,'2020'] for t in self.listTechno)
                                                           ==self.s0[r].loc[T]['2020']
                                                           )
 
@@ -1229,27 +1201,27 @@ class IAM_Metal_Optimisation_EV :
         for m in self.listMetals_knownRes:
             self.model.constraint_DemandCumulated.add(sum((self.model.s[r,t,self.listDecades[d]]-self.model.s[r,t,self.listDecades[d-1]])
                                           *((self.MetalIntensity_doc[self.listDecades[d]][t].loc[m]+self.MetalIntensity_doc[self.listDecades[d-1]][t].loc[m])/2)
-                                          /self.MetalData['RR (%) Res'].loc[m] for t in self.listTechno_Ren for r in self.listRegions for d in range(1, len(self.listDecades)))
+                                          /self.Recovery_Rates['RR_Reserve'].loc[m] for t in self.listTechno_Ren for r in self.listRegions for d in range(1, len(self.listDecades)))
                                                       # Metal demand to create the vehicle stock with recycling between 2020 and 2030
                                                       + sum(
                 sum(self.model.x[v, self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m][v] for v in self.listVehicle)
                 - self.model.x_growth['ICEV', self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m]['ICEV'] for y in
-                range(2, 12))/self.MetalData['RR (%) Res'].loc[m]
+                range(2, 12))/self.Recovery_Rates['RR_Reserve'].loc[m]
                                                       # Metal demand to create the vehicle stock with recycling between 2030 and 2040
                                                       + sum(
                 (self.model.x[v, self.listYearsVehicle[y]] - self.model.x[v, self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]]) * self.MI_Vehicle.loc[m][v] /
-                self.MetalData['RR (%) Res'].loc[m] for v in self.listVehicle for y in range(12, len(self.listYearsVehicle)))
+                self.Recovery_Rates['RR_Reserve'].loc[m] for v in self.listVehicle for y in range(12, len(self.listYearsVehicle)))
 
-                                                      + sum(self.Storage_Demand.loc[m][y] / self.MetalData['RR (%) Res'].loc[m]
+                                                      + sum(self.Storage_Demand.loc[m][y] / self.Recovery_Rates['RR_Reserve'].loc[m]
                                                             for y in self.listYears)
                                                       # Metal demand cumulated for network grid
                                                       + sum(
-                self.model.n[m, y]*10**6 / self.MetalData['RR (%) Res'].loc[m] for y in self.listYears)
+                self.model.n[m, y]*10**6 / self.Recovery_Rates['RR_Reserve'].loc[m] for y in self.listYears)
                                                       + sum(
                 (self.OSD[self.listDecades[d]].loc[m] + self.OSD[self.listDecades[d - 1]].loc[m]) * 10 / 2 for d in
                 range(1, len(self.listDecades)))
                                                       - self.model.Res_relax[m]
-                                                      <= self.MetalData[self.ResLimit].loc[m])
+                                                      <= self.Reserves_Resources_Data[self.ResLimit].loc[m])
 
         # model.constraint_DemandCumulated.pprint()
 
@@ -1264,7 +1236,7 @@ class IAM_Metal_Optimisation_EV :
             return sum(
                 self.MetalIntensity_doc[self.listDecades[d]][t].loc[m]
                 * (self.model.s[r, t, self.listDecades[d]] - self.model.s[r, t, self.listDecades[d - 1]])
-                / self.MetalData['RR (%) Prod'].loc[m]
+                / self.Recovery_Rates['RR_Prod'].loc[m]
                 for t in self.listTechno_Ren
                 for r in self.listRegions
             ) / 10
@@ -1272,8 +1244,8 @@ class IAM_Metal_Optimisation_EV :
         def network_storage_demand(m, d):
             return (sum(
                 self.model.n[m, self.listYearsTot[5 + i + 10 * d]]*10**6 for i in self.list_i)
-                    / (self.MetalData['RR (%) Prod'].loc[m] * 10)
-                    + self.Storage_Demand[self.listDecades[d]].loc[m] / self.MetalData['RR (%) Prod'].loc[m])
+                    / (self.Recovery_Rates['RR_Prod'].loc[m] * 10)
+                    + self.Storage_Demand[self.listDecades[d]].loc[m] / self.Recovery_Rates['RR_Prod'].loc[m])
 
         def vehicle_demand(m, d):
             if d == 1:
@@ -1286,7 +1258,7 @@ class IAM_Metal_Optimisation_EV :
                         - self.model.x_growth['ICEV', self.listYearsTot[5 + i + 10 * d - self.Lifetime_V]]
                         * self.MI_Vehicle.loc[m, 'ICEV'] * self.Recycling_Rate.loc[m,self.listYearsTot[5 + i + 10 * d]]
                     )
-                    / self.MetalData['RR (%) Prod'].loc[m]
+                    / self.Recovery_Rates['RR_Prod'].loc[m]
                     for i in self.list_i
                 ) / 10
             else:
@@ -1300,7 +1272,7 @@ class IAM_Metal_Optimisation_EV :
                             / 10
                     )
                     * self.MI_Vehicle.loc[m][v]
-                    / self.MetalData['RR (%) Prod'].loc[m]
+                    / self.Recovery_Rates['RR_Prod'].loc[m]
                     for v in self.listVehicle
                 )
 
@@ -1340,7 +1312,7 @@ class IAM_Metal_Optimisation_EV :
         # Before 2035, cannot add more than 10% of Na-ion already presumed
         for y in self.listYearsVehicle[:23]:
             self.model.Constraint_NewTechnoEV.add(sum(
-                sum(self.TechnoMatrixEV[v].loc[V] * self.model.x[v, y] for v in self.listVehicle)
+                sum(self.EV_Flex_Matrix[v].loc[V] * self.model.x[v, y] for v in self.listVehicle)
                 for V in self.listVehicleAgg if "Na-ion" in V)
                 <= 1.1 * sum(self.x0.loc[V, y] for V in self.listVehicleAgg if "Na-ion" in V))
 
@@ -1482,25 +1454,25 @@ class IAM_Metal_Optimisation_EV :
         StorageDemand = pd.Series()
         # Create a list with metals needed for the other sector of society
         OtherSectorDemand = pd.Series()
-        # Add datas for each Series
+        # Add data for each Series
         for m in self.listMetals:
             EnergySectorDemand[m] = sum(
                 (self.res_dic[r].loc[t][self.listDecades[d]] - self.res_dic[r].loc[t][self.listDecades[d - 1]])
                 * ((self.MetalIntensity_doc[self.listDecades[d]][t].loc[m] +
                     self.MetalIntensity_doc[self.listDecades[d - 1]][t].loc[m]) / 2)
-                / self.MetalData['RR (%) Res'].loc[m] for t in self.listTechno_Ren for r in self.listRegions for d
+                / self.Recovery_Rates['RR_Reserve'].loc[m] for t in self.listTechno_Ren for r in self.listRegions for d
                 in range(1, len(self.listDecades)))
-            NetworkDemand[m] = sum(self.res_Network.loc[m][y] / self.MetalData['RR (%) Res'].loc[m] for y in self.listYears)
+            NetworkDemand[m] = sum(self.res_Network.loc[m][y] / self.Recovery_Rates['RR_Reserve'].loc[m] for y in self.listYears)
             EVSectorDemand[m] = (sum(sum(self.res_EV.loc[v, self.listYearsVehicle[y]]* self.MI_Vehicle.loc[m][v] for v in self.listVehicle)
                                          - self.VehicleType_Growth.loc['ICEV', self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m]['ICEV']
-                                         for y in range(2, 12))/ self.MetalData['RR (%) Res'].loc[m]
+                                         for y in range(2, 12))/ self.Recovery_Rates['RR_Reserve'].loc[m]
                                  + sum((self.res_EV.loc[v, self.listYearsVehicle[y]]
                                         - self.res_EV.loc[v, self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]])
-                                       * self.MI_Vehicle.loc[m][v] / self.MetalData['RR (%) Res'].loc[m]
+                                       * self.MI_Vehicle.loc[m][v] / self.Recovery_Rates['RR_Reserve'].loc[m]
                                        for v in self.listVehicle for y in range(12, len(self.listYearsVehicle))))
 
             StorageDemand[m] = sum(
-                self.Storage_Demand.loc[m][y] / self.MetalData['RR (%) Res'].loc[m] for y in self.listYears)
+                self.Storage_Demand.loc[m][y] / self.Recovery_Rates['RR_Reserve'].loc[m] for y in self.listYears)
             OtherSectorDemand[m] = + self.OSD['2020'].loc[m] + sum(
                 (self.OSD[self.listDecades[d]].loc[m] + self.OSD[self.listDecades[d - 1]].loc[m]) * 10 / 2 for d in
                 range(1, len(self.listDecades)))
@@ -1545,15 +1517,15 @@ class IAM_Metal_Optimisation_EV :
 
                 NetworkDemandy[self.listDecades[d]].loc[m] = (sum(
                     self.res_Network.loc[m][self.listYearsTot[5 + i + 10 * d]] for i in self.list_i)
-                                                               /(self.MetalData['RR (%) Prod'].loc[m]*10))
+                                                               /(self.Recovery_Rates['RR_Prod'].loc[m]*10))
 
                 EVSectorDemand[self.listDecades[d]].loc[m] = sum(
                     self.res_EV.loc[v, self.listYearsTot[5 + i + 10 * d]] * self.MI_Vehicle.loc[m, v]
                     for v in self.listVehicle for i in self.list_i
-                    )/(10*self.MetalData['RR (%) Prod'].loc[m])
+                    )/(10*self.Recovery_Rates['RR_Prod'].loc[m])
         self.EVSectorDemand = EVSectorDemand
 
-        # Create a three dimensions dataFrame to add all datas of consumption by decade
+        # Create a three dimensions dataFrame to add all data of consumption by decade
         DemandByYear_df = {}
         for m in self.listMetals:
             # Index for different datasSets, columns for each decades
@@ -1562,11 +1534,11 @@ class IAM_Metal_Optimisation_EV :
             for i in DemandByYear_df[m].index:
                 # Add the values for each dataSets
                 DemandByYear_df[m].loc['Energy Sector Demand'] = EnergySectorDemandy.loc[m] / \
-                                                                   self.MetalData['RR (%) Prod'].loc[m]
+                                                                   self.Recovery_Rates['RR_Prod'].loc[m]
                 DemandByYear_df[m].loc['Other Sector Demand'] = self.OSD.loc[m]
                 DemandByYear_df[m].loc['Network Demand'] = NetworkDemandy.loc[m] / \
-                                                           self.MetalData['RR (%) Prod'].loc[m]
-                DemandByYear_df[m].loc['Storage Demand'] = self.Storage_Demand.loc[m] / self.MetalData['RR (%) Prod'].loc[m]
+                                                           self.Recovery_Rates['RR_Prod'].loc[m]
+                DemandByYear_df[m].loc['Storage Demand'] = self.Storage_Demand.loc[m] / self.Recovery_Rates['RR_Prod'].loc[m]
                 DemandByYear_df[m].loc['EV Sector Demand'] = self.EVSectorDemand.loc[m]
         self.DemandByYear_df = DemandByYear_df
 
@@ -1580,11 +1552,11 @@ class IAM_Metal_Optimisation_EV :
                         self.VehicleType_Growth.loc['ICEV', self.listYearsTot[5 + i + 10 * d - self.Lifetime_V]]
                         * self.Recycling_Rate.loc[m,self.listYearsTot[5 + i + 10 * d]] for i in self.list_i)
                                                                       * self.MI_Vehicle.loc[m]['ICEV']
-                                                                     /(10*self.MetalData['RR (%) Prod'].loc[m]))
+                                                                     /(10*self.Recovery_Rates['RR_Prod'].loc[m]))
                 elif d>1:
                     Secondary_Prod_df.loc[m, self.listDecades[d]] = (sum(self.res_EV.loc[v, self.listYearsTot[5 + i + 10 * d - self.Lifetime_V]]
                                 * self.MI_Vehicle.loc[m, v] * self.Recycling_Rate.loc[m,self.listYearsTot[5 + i + 10 * d]] for v in self.listVehicle for i in self.list_i)
-                                                                     /(10 * self.MetalData['RR (%) Prod'].loc[m]))
+                                                                     /(10 * self.Recovery_Rates['RR_Prod'].loc[m]))
 
         self.Secondary_Prod_df = Secondary_Prod_df
 
@@ -1662,7 +1634,7 @@ class IAM_Metal_Optimisation_EV :
     def Save_OSD_Prod (self):
 
         '''
-        Save datas for other sector demand and other transition demand by year and cumulated by decade
+        Save data for other sector demand and other transition demand by year and cumulated by decade
         Save estimated production by year
         '''
 
@@ -1698,7 +1670,7 @@ class IAM_Metal_Optimisation_EV :
             for m in self.listMetals:
                 for d in self.listDecades[1:]:
                     # If total metal demand is under the estimated production
-                    if (self.Prod[d].loc[m] - self.Storage_Demand[d].loc[m] / self.MetalData['RR (%) Prod'].loc[m] - self.OSD[d].loc[m]) >= (
+                    if (self.Prod[d].loc[m] - self.Storage_Demand[d].loc[m] / self.Recovery_Rates['RR_Prod'].loc[m] - self.OSD[d].loc[m]) >= (
                             self.Alpha / 100 * self.OSD[d].loc[m]):
                         ConstraintDemandByYear[d].loc[m] = 'Prod'
                     # If there is a need for an effort from society

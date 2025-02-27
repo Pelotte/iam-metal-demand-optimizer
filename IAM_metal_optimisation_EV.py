@@ -90,9 +90,9 @@ class IAM_Metal_Optimisation_EV :
             # List of the 5 regions studied by the IAM for power capacities
             self.listRegions = pd.read_excel(file, 'region', index_col=0).squeeze().tolist()
             # List of the initial energy sources in IAM
-            self.listTechnoAgg = pd.read_excel(file, 'technologies flex', index_col=0).squeeze().tolist()
+            self.listEnergySourcesAgg = pd.read_excel(file, 'technologies flex', index_col=0).squeeze().tolist()
             # List of the disaggregated sub-technologies of energy sources studied
-            self.listTechno = pd.read_excel(file, 'technologies precises', index_col=0).squeeze().tolist()
+            self.listEnergySources = pd.read_excel(file, 'technologies precises', index_col=0).squeeze().tolist()
 
             # Vehicles
 
@@ -132,7 +132,8 @@ class IAM_Metal_Optimisation_EV :
         self.Hydro_availability = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx', sheet_name = 'Hydro_Avail',index_col=0)
 
         # Import charging factors (CF) of energy sources from the literature
-        self.CF_from_litt = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx', sheet_name = 'CF_Litt', index_col=0)
+        self.CF_Litt = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx',
+                                          sheet_name = 'CF_Litt', index_col=0)
         # Import matrix for corresponding CF of aggregated and disaggregated energy sources
         CF_Flex_Matrix_Init_Disag = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx', sheet_name = 'CF_Flexibility_Matrix', index_col=0)
         self.CF_Flex_Matrix_Disag = CF_Flex_Matrix_Init_Disag.sort_values(by='Techno ') # Rearrange matrix in the alphabetic order of technologies
@@ -142,17 +143,17 @@ class IAM_Metal_Optimisation_EV :
                                              sheet_name='Power_Flexibility_Matrix', index_col=0)
 
         # Create a list to store fossil technologies
-        self.listTechno_Foss = []
+        self.listEnergySources_Foss = []
         # Iterate through the list of technologies and append the indices of those containing "Foss"
-        for techno in self.listTechno:
+        for techno in self.listEnergySources:
             if "Foss" in techno:
-                self.listTechno_Foss.append(techno)
+                self.listEnergySources_Foss.append(techno)
         # Create a list to store renewable and carbo-neutral technologies
-        self.listTechno_Ren = []
+        self.listEnergySources_Ren = []
         # Iterate through the list of technologies and append the names of those not containing "Foss"
-        for techno in self.listTechno:
+        for techno in self.listEnergySources:
             if "Foss" not in techno:
-                self.listTechno_Ren.append(techno)
+                self.listEnergySources_Ren.append(techno)
 
         # 5. Data from literature linked to electric vehicles (EV)
 
@@ -242,7 +243,7 @@ class IAM_Metal_Optimisation_EV :
                                             sheet_name='Metal_categorisation', index_col=0)
         # Create sub-list of metals for each category according to the table categorization
         listBulkMetals = [m for m in self.listMetals if MetalCategorisation['Bulk metals'].loc[m] == 'x']
-        listTechnoSpecificMetals = [m for m in self.listMetals if MetalCategorisation['Technology-specific'].loc[m] == 'x']
+        listEnergySourcesSpecificMetals = [m for m in self.listMetals if MetalCategorisation['Technology-specific'].loc[m] == 'x']
 
         # Create a variable to stock the scenario of metal intensity reduction, according to the scenario ssp
         MI_reduc_scenario = str()
@@ -253,7 +254,6 @@ class IAM_Metal_Optimisation_EV :
         elif self.scenario.startswith('SSP3') or self.scenario.startswith('SSP4'):
             MI_reduc_scenario = 'Conservative'
 
-
         # Reductions for each category of metals, according to the scenario ssp
         bulk_reduction = (100 - ReductionScenario[MI_reduc_scenario].loc['Bulk metals']) / 100
         techno_specific_reduction = (100 - ReductionScenario[MI_reduc_scenario].loc['Technology-specific']) / 100
@@ -263,16 +263,16 @@ class IAM_Metal_Optimisation_EV :
             previous_year = self.listYears[y - 1]
 
             # Create a DataFrame for the current year
-            MetalIntensity_doc[current_year] = pd.DataFrame(index=self.listMetals, columns=self.listTechno)
+            MetalIntensity_doc[current_year] = pd.DataFrame(index=self.listMetals, columns=self.listEnergySources)
 
-            for t in self.listTechno:
+            for t in self.listEnergySources:
                 # Apply the MI reduction in time for bulk metals
                 MetalIntensity_doc[current_year].loc[listBulkMetals, t] = (
                         MetalIntensity_doc[previous_year].loc[listBulkMetals, t] * bulk_reduction
                 )
                 # Apply the MI reduction in time for technology-specific metals
-                MetalIntensity_doc[current_year].loc[listTechnoSpecificMetals, t] = (
-                        MetalIntensity_doc[previous_year].loc[listTechnoSpecificMetals, t] * techno_specific_reduction
+                MetalIntensity_doc[current_year].loc[listEnergySourcesSpecificMetals, t] = (
+                        MetalIntensity_doc[previous_year].loc[listEnergySourcesSpecificMetals, t] * techno_specific_reduction
                 )
         # Final need in metal m for the techno t at the decade d
         # in [t/GW] with reduction in time according to ssp
@@ -283,84 +283,89 @@ class IAM_Metal_Optimisation_EV :
         Calculate Charging Factor (CF) by sub-technology, based on initial IAM CF
         '''
 
-        # Reads the folder with excel files of CF from IAM dataset
+        # 1. Add CF calculated based on IAM power capacity and energy estimates
+
+        # Reads the folder with Excel files of CF from IAM dataset
         excelCF = [f for f in os.listdir(self.CF_folder) if f.endswith('xlsx')]
 
         # Creation of a dictionary of dataFrame to stock IAM CF
-        CF = {}
+        CF_IAM = {}
         # Copies initially calculated CF by IAM in the dictionary
         for region_name, file in zip(self.listRegions, excelCF):
-            fileCFbyRegion = os.path.join(self.CF_folder, file)  # Copies data from files in dataFrames
-            CF[region_name] = pd.read_excel(fileCFbyRegion,index_col=0)  # Copies the dataFrames in dic
-            CF[region_name] = CF[region_name].drop('Total', axis=0) # Drop the total column
+            fileCFbyRegion = os.path.join(self.CF_folder, file)  # copies data from files in dataFrames
+            CF_IAM[region_name] = pd.read_excel(fileCFbyRegion, index_col=0)  # copies the dataFrames in dic
+            CF_IAM[region_name] = CF_IAM[region_name].drop('Total', axis=0)  # Drop the total column
 
         # List of techno included in the initial CF
-        list_CF_techno = list(CF[self.listRegions[0]].index)
-        self.list_CF_techno =list_CF_techno
+        list_CF_techno = list(CF_IAM[self.listRegions[0]].index)
+        self.list_CF_techno = list_CF_techno
 
         # Correct the CF for missing technology from IAM data
         for region in self.listRegions:
             # If Hydro not in IAM data :
             if "Hydro" not in list_CF_techno:
                 # Add CF from the literature
-                CF[region].loc["Hydro"] = self.CF_from_litt["CF_Litt"].loc["Hydro"] * 100  # Add a line for hydro when not included, data from the literature
+                CF_IAM[region].loc["Hydro"] = self.CF_Litt.loc[
+                                              "Hydro"] * 100  # Add a line for hydro when not included, data from the literature
             # If Oil not in IAM data :
             if "Oil" not in list_CF_techno:
                 # Add CF from the literature
-                CF[region].loc["Oil"] = self.CF_from_litt["CF_Litt"].loc["Oil"] * 100  # Add a line for oil when not included, data from the literature
-            # If Wind Offshore not in IAM data :
-            if "Wind Offshore" not in list_CF_techno:
-                # Add CF from the literature
-                CF[region].loc["Wind Offshore"] = self.CF_from_litt["CF_Litt"].loc[
-                                                      "Wind Offshore"] * 100  # Add a line for wind offshore from the literature
+                CF_IAM[region].loc["Oil"] = self.CF_Litt.loc[
+                                            "Oil"] * 100  # Add a line for oil when not included, data from the literaturz
             # Correction of unlikely Biomass CF from IAM
             for decade in self.listDecades:
                 # If CF for Biomass is more than 85%
-                if CF[region][decade].loc["Biomass"] >= 0.85:
+                if CF_IAM[region][decade].loc["Biomass"] >= 0.85:
                     # Replace CF from IAM by CF from the literature
-                    CF[region][decade].loc["Biomass"] = self.CF_from_litt["CF_Litt"].loc["Biomass"] * 100
+                    CF_IAM[region][decade].loc["Biomass"] = self.CF_Litt.loc["Biomass"] * 100
             # If Geothermal not in IAM data :
             if "Geothermal" not in list_CF_techno:
-               # Hypothesis of Geothermal having the same CF from IAM data than Biomass
-               CF[region].loc["Geothermal"] = CF[region].loc["Biomass"]
+                # Hypothesis of Geothermal having the same CF from IAM data than Biomass
+                CF_IAM[region].loc["Geothermal"] = CF_IAM[region].loc["Biomass"]
 
-            CF[region] = CF[region].sort_index(axis=0) # Sort CF techno
+            if "Wind Offshore" not in list_CF_techno:
+                CF_IAM[region].loc["Wind Offshore"] = self.CF_Litt["CF_Litt"].loc[
+                                                      "Wind Offshore"] * 100  # Add a line for wind offshore from the literature
 
-        # Add CF from the literature for missing data
+            CF_IAM[region] = CF_IAM[region].sort_index(axis=0)  # Sort CF techno
+
+        # Add CF_Litt for missing data
         for region in self.listRegions:
-            for techno in list_CF_techno : # Loop through years included in the initial CF
-                for year in list(CF[self.listRegions[0]].columns): # Loop through techno included in the initial CF
-                    if np.isnan(CF[region][year].loc[techno]):  # Replace if the value is missing : "#NA"
-                        CF[region][year].loc[techno] = self.CF_from_litt["CF_Litt"].loc[
+            for techno in list_CF_techno:  # Loop through years included in the initial CF
+                for year in list(CF_IAM[self.listRegions[0]].columns):  # Loop through techno included in the initial CF
+                    if np.isnan(CF_IAM[region][year].loc[techno]):  # Replace if the value is missing
+                        CF_IAM[region][year].loc[techno] = self.CF_Litt["CF_Litt"].loc[
                                                            techno] * 100  # Take values from the litt (*100 bc percentage)
 
-            # Rename the line "Wind" by "Wind Onshore"
-            CF[region] = CF[region].rename(index={
+            # Rename the line "Wind" in "Wind Onshore"
+            CF_IAM[region] = CF_IAM[region].rename(index={
                 "Wind": "Wind Onshore"})  # Wind Onshore is 90% of Wind. We suppose IAM data are applied to Wind Onshore
 
-        # Initialise dictionary to store disaggregated CF data
-        CF_disag = {}
+        # Initialise dictionary to store disaggregated CF datas
+        CF = {}
         for region in self.listRegions:
             # Transpose the matrix with the corresponding CF techno / sub-techno matrix
-            CF_disag[region] = pd.DataFrame(self.CF_Flex_Matrix_Disag.transpose() @ CF[region])
+            CF[region] = pd.DataFrame(self.CF_Flex_Matrix_Disag.transpose() @ CF[region])
+
         # Change the CF of CSP for those of the literature, for the decades studied
         for region in self.listRegions:
             for years in self.listDecades:
-                for techno in self.listTechnoAgg:
+                for techno in self.listEnergySourcesAgg:
                     # if the techno is a sub-techno of solar CSP
                     if "CSP" in techno:
                         # replace the CF by the one from the literature
-                        CF_disag[region][years][techno] = self.CF_from_litt["CF_Litt"].loc["CSP"] * 100
+                        CF[region][years][techno] = self.CF_Litt["CF_Litt"].loc["CSP"] * 100
+
         # Change the CF of solar to be constant in time, for the decades studied
         for region in self.listRegions:
-            for years in self.listDecades[1:]: # exclude the first decade
-                for techno in self.listTechnoAgg:
+            for years in self.listDecades[1:]:  # exclude the first decade
+                for techno in self.listEnergySourcesAgg:
                     # if the techno is a sub-techno of solar PV
                     if "Sol" in techno:
                         # replace the CF by the one from IAM at the first decade
-                        CF_disag[region][years][techno] = CF_disag[region][self.listDecades[0]][techno]
+                        CF[region][years][techno] = CF[region][self.listDecades[0]][techno]
         # Final regionalized CF for the disaggregated sub-technologies
-        self.CF_disag = CF_disag
+        self.CF = CF
 
     def Power_Capacities(self):
         '''
@@ -404,7 +409,6 @@ class IAM_Metal_Optimisation_EV :
             # Delete excessive lines in the dictionary
             IAM_initial_data[region] = IAM_initial_data[region].drop(IAM_initial_data[region].index[LinesToDelete],
                                                                      axis=0)
-
         # List of the decades with an additional past one (ex : from 2020, add 2010)
         listDecadeswPast = self.listDecades.copy()
         listDecadeswPast.insert(0, str(int(self.listDecades[0]) - 10))
@@ -435,9 +439,9 @@ class IAM_Metal_Optimisation_EV :
                 self.s0[r][y] = pd.DataFrame(MarketShare_df[y].transpose() @ IAM_initial_data[r][y])
 
         if self.ModelisationType =='Opti':
-            self.listTechnoIAM = self.listTechnoAgg
+            self.listEnergySourcesIAM = self.listEnergySourcesAgg
         if self.ModelisationType =='Init':
-            self.listTechnoIAM = self.listTechno
+            self.listEnergySourcesIAM = self.listEnergySources
 
     def Demand_Network_Storage(self):
         '''
@@ -445,7 +449,7 @@ class IAM_Metal_Optimisation_EV :
         Based on projections from International Energy Agency (IEA)
         '''
 
-        # 0. Match IEA scenario with SSP-RCP ones
+        # 1. Match IEA scenario with SSP-RCP ones
 
         # Addition of the data from the IEA in this DataFrame. The IEA scenario considered depends on the SSP
         # Net Zero
@@ -461,7 +465,7 @@ class IAM_Metal_Optimisation_EV :
             scenarioIEA = 'SPS'
             self.scenarioIEA = scenarioIEA
 
-        # 1. Demand for Storage of energy, from IEA data
+        # 2. Demand for Storage of energy, from IEA data
 
         # Select only the data of the scenario studied, thanks to the column scenario
         self.Storage_Demand_init = self.Storage_Demand_init[self.Storage_Demand_init["Scenario"] == scenarioIEA]
@@ -486,7 +490,7 @@ class IAM_Metal_Optimisation_EV :
                 if self.Storage_Demand_init[y].loc[m] > 0.0:
                     self.Storage_Demand[y].loc[m] = self.Storage_Demand_init[y].loc[m]
 
-        # 2. Demand for Grid network, from IEA data
+        # 3. Demand for Grid network, from IEA data
 
         # Select only the data of the scenario studied, thanks to the column scenario
         self.Network_Demand_init = self.Network_Demand_init[self.Network_Demand_init["Scenario"] == scenarioIEA]
@@ -855,8 +859,8 @@ class IAM_Metal_Optimisation_EV :
         # 1. Estimate OSD by year in 2020
 
         # New capacity installed between 2010 and 2020, by techno
-        new2020Capacity_d = pd.DataFrame(0.0, index=self.listTechnoAgg, columns=['2020'])
-        for t in self.listTechnoIAM:
+        new2020Capacity_d = pd.DataFrame(0.0, index=self.listEnergySourcesAgg, columns=['2020'])
+        for t in self.listEnergySourcesIAM:
             for r in self.listRegions:
                 # Only account if there is an increase in capacity
                 if self.s0[r].loc[t, '2020'] - self.s0[r].loc[t, '2010'] > 0:
@@ -867,7 +871,7 @@ class IAM_Metal_Optimisation_EV :
         # Metal demand for the new installed capacity at the year 2020
         PowerMetalDemand_y = pd.DataFrame(0.0, index=self.listMetals, columns=['2020'])
         for m in self.listMetals:
-            for t in self.listTechnoAgg:
+            for t in self.listEnergySourcesAgg:
                 if t == 'Sol_Thin_Film' or t == 'Wind_Onshore':
                     # Aggregated MI data, with 2010 market share
                     PowerMetalDemand_y['2020'].loc[m] = PowerMetalDemand_y['2020'].loc[m] + \
@@ -1000,7 +1004,7 @@ class IAM_Metal_Optimisation_EV :
         # Declaration of the optimization variables
 
         # Cumulated powder capacities at the region r, of the energy source t, at the decade d
-        self.model.s = Var(self.listRegions, self.listTechno, self.listDecades, initialize=0, domain=NonNegativeReals)
+        self.model.s = Var(self.listRegions, self.listEnergySources, self.listDecades, initialize=0, domain=NonNegativeReals)
         # Millions of specific vehicles v sold at the year y (from 2020 to 2050)
         self.model.x = Var(self.listVehicle, self.listYearsVehicle, initialize=0, domain=NonNegativeReals)
         # Millions of vehicles sold to answer the growth in demand, by vehicle type, at the year y
@@ -1017,7 +1021,7 @@ class IAM_Metal_Optimisation_EV :
         # Potential requirement for additional mining production of metal m at the decade d
         self.model.Mining_relax = Var(self.listMetals, self.listDecades, initialize=0, within=NonNegativeReals)
         # In case the initial techno mix has a decrease for some technoRen
-        self.model.CoherentMix_relax = Var(self.listRegions, self.listTechno_Ren, self.listDecades, initialize=0, within=NonNegativeReals)
+        self.model.CoherentMix_relax = Var(self.listRegions, self.listEnergySources_Ren, self.listDecades, initialize=0, within=NonNegativeReals)
 
     def modelObj(self):
         '''
@@ -1028,9 +1032,9 @@ class IAM_Metal_Optimisation_EV :
 
         self.model.objective = Objective(
             expr=
-            sum(((((sum(self.Pow_Flex_Matrix[t].loc[T] * self.model.s[r,t,d] for t in self.listTechno))
+            sum(((((sum(self.Pow_Flex_Matrix[t].loc[T] * self.model.s[r,t,d] for t in self.listEnergySources))
                    -self.s0[r].loc[T][d])/(self.s0[r].loc[T][d]+epsilon))**2)
-                for r in self.listRegions for T in self.listTechnoAgg for d in self.listDecades)
+                for r in self.listRegions for T in self.listEnergySourcesAgg for d in self.listDecades)
 
 
             + sum((((sum(self.EV_Flex_Matrix[v].loc[V] * self.model.x[v, y] for v in self.listVehicle)
@@ -1041,7 +1045,7 @@ class IAM_Metal_Optimisation_EV :
 
             + sum(self.M * (self.model.Res_relax[m] / self.Reserves_Resources_Data[self.ResLimit].loc[m]) for m in self.listMetals_knownRes)
             + sum(self.M * (self.model.Mining_relax[m, d] / self.Prod[d].loc[m]) for m in self.listMetals for d in self.listDecades)
-            + sum(self.M * (self.model.CoherentMix_relax[r, t_r, d]) for r in self.listRegions for t_r in self.listTechno_Ren for d in self.listDecades)
+            + sum((self.model.CoherentMix_relax[r, t_r, d]) for r in self.listRegions for t_r in self.listEnergySources_Ren for d in self.listDecades)
             #+ sum(self.M * (self.model.Stock_relax[vT, y]) ** 2 for vT in self.listVehicleType for y in self.listYearsVehicle)
             , sense=minimize)
 
@@ -1071,9 +1075,9 @@ class IAM_Metal_Optimisation_EV :
         for r in self.listRegions:
             for d in self.listDecades:
                 self.model.ConstraintEnergyDemand.add(
-                    sum(sum(self.Pow_Flex_Matrix[t].loc[T] * self.model.s[r, t, d] for t in self.listTechno)
-                        * self.CF_disag[r].loc[T][d] for T in self.listTechnoAgg)
-                    >= sum(self.s0[r].loc[T][d] * self.CF_disag[r].loc[T][d] for T in self.listTechnoAgg)
+                    sum(sum(self.Pow_Flex_Matrix[t].loc[T] * self.model.s[r, t, d] for t in self.listEnergySources)
+                        * self.CF[r].loc[T][d] for T in self.listEnergySourcesAgg)
+                    >= sum(self.s0[r].loc[T][d] * self.CF[r].loc[T][d] for T in self.listEnergySourcesAgg)
                 )
 
     def CstrVehicleDemand(self):
@@ -1121,8 +1125,8 @@ class IAM_Metal_Optimisation_EV :
         self.model.constraintMixCoherence2020 = ConstraintList()
         # The initial technological mix of 2020 cannot be changed
         for r in self.listRegions:
-            for T in self.listTechnoAgg:
-                self.model.constraintMixCoherence2020.add(sum(self.Pow_Flex_Matrix[t].loc[T] *self.model.s[r,t,'2020'] for t in self.listTechno)
+            for T in self.listEnergySourcesAgg:
+                self.model.constraintMixCoherence2020.add(sum(self.Pow_Flex_Matrix[t].loc[T] *self.model.s[r,t,'2020'] for t in self.listEnergySources)
                                                           ==self.s0[r].loc[T]['2020']
                                                           )
 
@@ -1130,7 +1134,7 @@ class IAM_Metal_Optimisation_EV :
         self.model.constraintMixCoherence = ConstraintList()
         # If a capacity is installed in d-1, it is still installed in the future cumulated installed capacity in d
         for r in self.listRegions:
-            for t in self.listTechno_Ren:
+            for t in self.listEnergySources_Ren:
                 for d in range(1, len(self.listDecades)):
                     self.model.constraintMixCoherence.add(
                         self.model.s[r, t, self.listDecades[d]] + self.model.CoherentMix_relax[r, t, self.listDecades[d]] >= self.model.s[r, t, self.listDecades[d - 1]])
@@ -1143,7 +1147,7 @@ class IAM_Metal_Optimisation_EV :
         self.model.constraintCC = ConstraintList()
 
         for r in self.listRegions:
-            for t in self.listTechno_Foss:
+            for t in self.listEnergySources_Foss:
                 for d in self.listDecades:
                     self.model.constraintCC.add(self.model.s[r, t, d] - self.s0[r].loc[t][d] == 0)
 
@@ -1157,7 +1161,7 @@ class IAM_Metal_Optimisation_EV :
         for m in self.listMetals_knownRes:
             self.model.constraint_DemandCumulated.add(sum((self.model.s[r,t,self.listDecades[d]]-self.model.s[r,t,self.listDecades[d-1]])
                                           *((self.MetalIntensity_doc[self.listDecades[d]][t].loc[m]+self.MetalIntensity_doc[self.listDecades[d-1]][t].loc[m])/2)
-                                          /self.Recovery_Rates['RR_Reserve'].loc[m] for t in self.listTechno_Ren for r in self.listRegions for d in range(1, len(self.listDecades)))
+                                          /self.Recovery_Rates['RR_Reserve'].loc[m] for t in self.listEnergySources_Ren for r in self.listRegions for d in range(1, len(self.listDecades)))
                                                       # Metal demand to create the vehicle stock with recycling between 2020 and 2030
                                                       + sum(
                 sum(self.model.x[v, self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m][v] for v in self.listVehicle)
@@ -1193,7 +1197,7 @@ class IAM_Metal_Optimisation_EV :
                 self.MetalIntensity_doc[self.listDecades[d]][t].loc[m]
                 * (self.model.s[r, t, self.listDecades[d]] - self.model.s[r, t, self.listDecades[d - 1]])
                 / self.Recovery_Rates['RR_Prod'].loc[m]
-                for t in self.listTechno_Ren
+                for t in self.listEnergySources_Ren
                 for r in self.listRegions
             ) / 10
 
@@ -1416,7 +1420,7 @@ class IAM_Metal_Optimisation_EV :
                 (self.res_dic[r].loc[t][self.listDecades[d]] - self.res_dic[r].loc[t][self.listDecades[d - 1]])
                 * ((self.MetalIntensity_doc[self.listDecades[d]][t].loc[m] +
                     self.MetalIntensity_doc[self.listDecades[d - 1]][t].loc[m]) / 2)
-                / self.Recovery_Rates['RR_Reserve'].loc[m] for t in self.listTechno_Ren for r in self.listRegions for d
+                / self.Recovery_Rates['RR_Reserve'].loc[m] for t in self.listEnergySources_Ren for r in self.listRegions for d
                 in range(1, len(self.listDecades)))
             NetworkDemand[m] = sum(self.res_Network.loc[m][y] / self.Recovery_Rates['RR_Reserve'].loc[m] for y in self.listYears)
             EVSectorDemand[m] = (sum(sum(self.res_EV.loc[v, self.listYearsVehicle[y]]* self.MI_Vehicle.loc[m][v] for v in self.listVehicle)
@@ -1441,8 +1445,8 @@ class IAM_Metal_Optimisation_EV :
         # Create a dF for newly installed capacity by decades
         newCapacityD = {}
         for r in self.listRegions:
-            newCapacityD[r] = pd.DataFrame(0.0, index=self.listTechno, columns=self.listDecades[1:])
-            for t in self.listTechno:
+            newCapacityD[r] = pd.DataFrame(0.0, index=self.listEnergySources, columns=self.listDecades[1:])
+            for t in self.listEnergySources:
                 for d in range(1, len(self.listDecades)):
                     if self.res_dic[r].loc[t][self.listDecades[d]] - self.res_dic[r].loc[t][
                         self.listDecades[d - 1]] > 0:  # Changes the value only for an addition of capacity
@@ -1469,7 +1473,7 @@ class IAM_Metal_Optimisation_EV :
                 EnergySectorDemandy[self.listDecades[d]].loc[m] = sum(
                     self.MetalIntensity_doc[self.listDecades[d]][t].loc[m]
                     * newCapacityD[r][self.listDecades[d]].loc[t] / 10
-                    for t in self.listTechno_Ren for r in self.listRegions)
+                    for t in self.listEnergySources_Ren for r in self.listRegions)
 
                 NetworkDemandy[self.listDecades[d]].loc[m] = (sum(
                     self.res_Network.loc[m][self.listYearsTot[5 + i + 10 * d]] for i in self.list_i)

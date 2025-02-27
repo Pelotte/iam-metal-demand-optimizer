@@ -171,14 +171,16 @@ class IAM_Metal_Optimisation_EV :
         self.MS_Battery = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='MS_Battery',
                                         index_col=0)
         # Import market share of EV motor, fixed in time [%]
-        self.MS_Motor = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='MS_Motor', index_col=0)
+        self.MS_Motor = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx',
+                                      sheet_name='MS_Motor', index_col=0).loc['MS']
         # Import statistics on vehicles : kWh of battery by vehicle type, kW of motor by vehicle type
         self.Vehicle_stat = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='Vehicle_Stat',
                                           index_col=0)
         # Import the matrix of correspondence between aggregated and disaggregated EV vehicles
         self.EV_Flex_Matrix = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='EV_flexibility_matrix', index_col=0)
         # Import recycling rates in 2020 for EV metals [%]
-        self.Initial_Recycling_Rate = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='Recycling_2020_Rates', index_col=0)
+        self.Initial_Recycling_Rate = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx',
+                                                    sheet_name='Recycling_2020_Rates', index_col=0)['Initial_Recycling_Rate']
         # Import the evolution of recycling rates in time for EV metals, by SSP scenario
         self.Recycling_Evolution = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='Recycling_Evolution',
                                             index_col=0)
@@ -281,15 +283,15 @@ class IAM_Metal_Optimisation_EV :
         Calculate Charging Factor (CF) by sub-technology, based on initial IAM CF
         '''
 
-        # Reads the folder with Excel files of CF from IAM dataset
-        excelCF = [f for f in os.listdir(CF_folder) if f.endswith('xlsx')]
+        # Reads the folder with excel files of CF from IAM dataset
+        excelCF = [f for f in os.listdir(self.CF_folder) if f.endswith('xlsx')]
 
         # Creation of a dictionary of dataFrame to stock IAM CF
         CF = {}
         # Copies initially calculated CF by IAM in the dictionary
         for region_name, file in zip(self.listRegions, excelCF):
-            fileCFbyRegion = os.path.join(CF_folder, file)  # copies data from files in dataFrames
-            CF[region_name] = pd.read_excel(fileCFbyRegion,index_col=0)  # copies the dataFrames in dic
+            fileCFbyRegion = os.path.join(self.CF_folder, file)  # Copies data from files in dataFrames
+            CF[region_name] = pd.read_excel(fileCFbyRegion,index_col=0)  # Copies the dataFrames in dic
             CF[region_name] = CF[region_name].drop('Total', axis=0) # Drop the total column
 
         # List of techno included in the initial CF
@@ -305,7 +307,12 @@ class IAM_Metal_Optimisation_EV :
             # If Oil not in IAM data :
             if "Oil" not in list_CF_techno:
                 # Add CF from the literature
-                CF[region].loc["Oil"] = self.CF_from_litt["CF_Litt"].loc["Oil"] * 100  # Add a line for oil when not included, data from the literaturz
+                CF[region].loc["Oil"] = self.CF_from_litt["CF_Litt"].loc["Oil"] * 100  # Add a line for oil when not included, data from the literature
+            # If Wind Offshore not in IAM data :
+            if "Wind Offshore" not in list_CF_techno:
+                # Add CF from the literature
+                CF[region].loc["Wind Offshore"] = self.CF_from_litt["CF_Litt"].loc[
+                                                      "Wind Offshore"] * 100  # Add a line for wind offshore from the literature
             # Correction of unlikely Biomass CF from IAM
             for decade in self.listDecades:
                 # If CF for Biomass is more than 85%
@@ -317,30 +324,25 @@ class IAM_Metal_Optimisation_EV :
                # Hypothesis of Geothermal having the same CF from IAM data than Biomass
                CF[region].loc["Geothermal"] = CF[region].loc["Biomass"]
 
-            if "Wind Offshore" not in list_CF_techno:
-                CF[region].loc["Wind Offshore"] = self.CF_from_litt["CF_Litt"].loc[
-                                                      "Wind Offshore"] * 100  # Add a line for wind offshore from the literature
-
             CF[region] = CF[region].sort_index(axis=0) # Sort CF techno
 
-        # Add CF_Litt for missing data
+        # Add CF from the literature for missing data
         for region in self.listRegions:
             for techno in list_CF_techno : # Loop through years included in the initial CF
                 for year in list(CF[self.listRegions[0]].columns): # Loop through techno included in the initial CF
-                    if np.isnan(CF[region][year].loc[techno]):  # Replace if the value is missing
+                    if np.isnan(CF[region][year].loc[techno]):  # Replace if the value is missing : "#NA"
                         CF[region][year].loc[techno] = self.CF_from_litt["CF_Litt"].loc[
                                                            techno] * 100  # Take values from the litt (*100 bc percentage)
 
-            # Rename the line "Wind" in "Wind Onshore"
+            # Rename the line "Wind" by "Wind Onshore"
             CF[region] = CF[region].rename(index={
                 "Wind": "Wind Onshore"})  # Wind Onshore is 90% of Wind. We suppose IAM data are applied to Wind Onshore
 
-        # Initialise dictionary to store disaggregated CF datas
+        # Initialise dictionary to store disaggregated CF data
         CF_disag = {}
         for region in self.listRegions:
             # Transpose the matrix with the corresponding CF techno / sub-techno matrix
             CF_disag[region] = pd.DataFrame(self.CF_Flex_Matrix_Disag.transpose() @ CF[region])
-
         # Change the CF of CSP for those of the literature, for the decades studied
         for region in self.listRegions:
             for years in self.listDecades:
@@ -349,7 +351,6 @@ class IAM_Metal_Optimisation_EV :
                     if "CSP" in techno:
                         # replace the CF by the one from the literature
                         CF_disag[region][years][techno] = self.CF_from_litt["CF_Litt"].loc["CSP"] * 100
-
         # Change the CF of solar to be constant in time, for the decades studied
         for region in self.listRegions:
             for years in self.listDecades[1:]: # exclude the first decade
@@ -382,7 +383,7 @@ class IAM_Metal_Optimisation_EV :
             IAM_initial_data[region_name] = pd.read_excel(fileIAMbyRegion,
                                                           index_col=0)  # copies the dataFrames in dic, with first col as index
 
-        # Delete lines with power capacity repetition (ex. Capacity total, Capacity wind and onshore/offshore)
+        # Delete lines with power capacity repetition (ex. Capacity total, Capacity wind and onshore/offshore...)
         # Identify the lines to delete from the IAM Power Capacity, according to the IAM chosen
         if (self.model_s0 == 'AIM..CGE'):
             excelLinesToDelete = [2, 10, 12]
@@ -397,7 +398,7 @@ class IAM_Metal_Optimisation_EV :
         if (self.model_s0 == 'WITCH-GLOBIOM'):
             excelLinesToDelete = [2, 9, 10, 13]
 
-        # List of lines to delete from the excel files (total of capacity, "other", repetitions...)
+        # List of lines to delete from the Excel files (total of capacity, "other", repetitions...)
         LinesToDelete = [line - 2 for line in excelLinesToDelete]
         for region in self.listRegions:
             # Delete excessive lines in the dictionary
@@ -416,13 +417,12 @@ class IAM_Metal_Optimisation_EV :
             name_sheet = d
             MarketShareInit_df[d] = pd.read_excel(f'{self.folder_path}Market Share in time - {self.ModelisationType}.xlsx', sheet_name=name_sheet,
                                                       index_col=0)
-
         self.MarketShareInit_df = MarketShareInit_df
 
         # Align IAM initial techno and matrix of MS, according to the techno represented by the model_s0 studied
         MarketShare_df = {}
         for y in self.listDecadeswPast: # Loop through decades studied + first previous decade
-            # Filter the rows of MarketShareInit_df based on the list of indexes from the initial IAM datas
+            # Filter the rows of MarketShareInit_df based on the list of indexes from the initial IAM data
             MarketShare_df[y] = MarketShareInit_df[y][MarketShareInit_df[y].index.isin(IAM_initial_data[self.listRegions[0]].index)]
 
         # Initialise dictionary to store disaggregated IAM power capacity, for each region, techno and decade [GW]
@@ -441,8 +441,8 @@ class IAM_Metal_Optimisation_EV :
 
     def Demand_Network_Storage(self):
         '''
-        Calculate the demand in metal for the rest of the transition : electric vehicle, grid, storage
-        Based on different International Energy Agency (IEA) scenarios
+        Estimate the demand in metal for grid and storage sectors
+        Based on projections from International Energy Agency (IEA)
         '''
 
         # 0. Match IEA scenario with SSP-RCP ones
@@ -465,17 +465,17 @@ class IAM_Metal_Optimisation_EV :
 
         # Select only the data of the scenario studied, thanks to the column scenario
         self.Storage_Demand_init = self.Storage_Demand_init[self.Storage_Demand_init["Scenario"] == scenarioIEA]
-
         # Add missing years to the initial dataFrame
         all_years = np.arange(2020, 2051)
         self.Storage_Demand_init = self.Storage_Demand_init.reindex(columns=all_years)
-
         # Linear Interpolation to fill intermediate years
         for m in self.Storage_Demand_init.index:
             self.Storage_Demand_init.loc[m] = self.Storage_Demand_init.loc[m].interpolate(method='linear')
+
         # Linear extrapolation for 2020 and 2021
         self.Storage_Demand_init[2020] = 2 * self.Storage_Demand_init[2022] - self.Storage_Demand_init[2025]
         self.Storage_Demand_init[2021] = (self.Storage_Demand_init[2022] + self.Storage_Demand_init[2020]) / 2  # Mean value
+
         # Change columns as strings
         self.Storage_Demand_init.columns = self.Storage_Demand_init.columns.astype(str)
 
@@ -490,8 +490,7 @@ class IAM_Metal_Optimisation_EV :
 
         # Select only the data of the scenario studied, thanks to the column scenario
         self.Network_Demand_init = self.Network_Demand_init[self.Network_Demand_init["Scenario"] == scenarioIEA]
-
-        # Linearization of metal demand for missing years
+        # Add missing years to the initial dataFrame
         self.Network_Demand_init = self.Network_Demand_init.reindex(columns=all_years)
 
         # Linear Interpolation to fill intermediate years
@@ -505,8 +504,8 @@ class IAM_Metal_Optimisation_EV :
         # Change columns as strings
         self.Network_Demand_init.columns = self.Network_Demand_init.columns.astype(str)
 
+        # Create the final Network_Demand dataFrame
         self.Network_Demand = pd.DataFrame(0.0, index=self.listMetals, columns=self.listYears)
-
         for y in self.listYears:
             for m in self.Network_Demand_init.index:
                 if self.Network_Demand_init[y].loc[m] > 0.0:
@@ -514,44 +513,36 @@ class IAM_Metal_Optimisation_EV :
 
 
     def Future_Production(self):
-
         '''
-        Estimation of future metal production in tons by year, until 2050
+        Estimate the future mining production [t/yr]
         '''
 
-        # Initialisation of a dataframe with metals in lines and years in columns
-        Prod = pd.DataFrame(index=self.listMetals, columns=self.listYears)
-
-        # Initialise the data from 2020 with actual known 2020 metal production
+        # Initialize DataFrame for final mining production with metals as index and years as columns
+        Prod = pd.DataFrame(index=self.listMetals, columns=self.listYears, dtype=float)
+        # Fill 2020 data with actual known metal production
         Prod["2020"] = self.Prod_2020['Prod_2020']
-        # Historical annual growth production rate by metal
+
+        # 1. Prod estimates based on the median production growth of historical data "Beta"
+
+        # Load the historical annual growth rate (Beta) per metal [%]
         Beta = pd.read_excel(self.folder_path + 'Prod&Demand_Other_Sectors.xlsx',
-                             sheet_name = 'Prod_Beta_Historic', index_col=0)
-        # Initialise a final demand dF to stock future demand in metals, with GDP increase
-        ProdFinalbyYear = {year: Prod[year].copy() for year in self.listYears}
-
+                             sheet_name='Prod_Beta_Historic', index_col=0)['Beta']
+        # Compute future production assuming a yearly growth rate based on Beta
         for m in self.listMetals:
-            if isinstance(Beta['Beta'].loc[m], (int, float)):
-                for y in range(1, len(self.listYears)):
-                    # Loop through list of years, excluding the first year 2020
-                    previous_prod = ProdFinalbyYear[self.listYears[y - 1]].loc[
-                        m]  # Create a variable for the production at the previous year
-                    ProdFinalbyYear[self.listYears[y]].loc[m] = previous_prod + Beta['Beta'].loc[
-                        m] * previous_prod  # Calculate production with beta increase by year
+            # For metals with an estimated beta
+            if isinstance(Beta.loc[m], (int, float)):
+                # Add beta growth rate
+                for y in range(1, len(self.listYears)):  # Iterate over years starting from 2030
+                        previous_year = self.listYears[y - 1]
+                        current_year = self.listYears[y]
+                        Prod[current_year].loc[m] = Prod[previous_year].loc[m] * (1 + Beta.loc[m])  # Apply growth rate
+        # Select only the required years (each decade)
+        Prod = Prod[['2020', '2030', '2040', '2050']]
 
-        # Conversion of the dic in dF
-        ProdFinalbyYear = pd.DataFrame.from_dict(ProdFinalbyYear, orient='index')
+        # 2. Prod estimates based on IEA data and byproduct calcuations
 
-        # Transpose the DataFrame to have metals as columns and years as index
-        ProdFinalbyYear = ProdFinalbyYear.transpose()
-
-        # Create the dataFrame with metal production other each decade
-        Prod = pd.DataFrame({'2020': self.Prod_2020['Prod_2020'], '2030': ProdFinalbyYear['2030'],
-                             '2040': ProdFinalbyYear['2040'], '2050': ProdFinalbyYear['2050']})
-
-        # Correction of future prod with IEA High production case projections for Cobalt, Copper, Nickel
+        # Production data from IEA estimates and byproduct calculations [t/yr]
         Prod_litt = pd.read_excel(self.folder_path + 'Prod&Demand_Other_Sectors.xlsx', sheet_name='Prod_IEA_&_By_product', index_col=0)
-
         for m in Prod_litt.index:
             for d in self.listDecades:
                 Prod[d].loc[m] = Prod_litt[d].loc[m]
@@ -564,7 +555,6 @@ class IAM_Metal_Optimisation_EV :
         self.listYearsTot = [str(year) for year in range(2005, 2051, 1)]
 
         self.Vehicle_Stock = pd.Series()
-
         if self.model_s0 in ['IMAGE', 'GCAM4']:
             # LDV Ratio
             Ratio_LDV = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='Ratio_LDV', index_col=0)
@@ -669,38 +659,6 @@ class IAM_Metal_Optimisation_EV :
 
         # Select only the data of the scenario studied, thanks to the column scenario
         self.MS_Battery = self.MS_Battery[self.MS_Battery["Scenario"] == scenarioIRENA_battery]
-        '''
-        # Create an empty DataFrame with defined columns
-        Vehicle_Sales = pd.DataFrame(0, index=[], columns=self.listYearsVehicle)
-
-        for v in self.listVehicleType:
-            if v == 'ICEV':
-                # Directly copy data for ICEV (Internal Combustion Engine Vehicle)
-                Vehicle_Sales.loc[v] = VehicleType_Sales.loc[v]
-            else:
-                for b in self.listBatteryAgg:
-                    # Create names for the PM (Permanent Magnet) and Induction battery configurations
-                    v_PM_Batt = f"{v}_PM_{b}"
-                    v_ind_Batt = f"{v}_Ind_{b}"
-
-                    # Add new rows with initial values (set to 0)
-                    Vehicle_Sales.loc[v_PM_Batt] = 0
-                    Vehicle_Sales.loc[v_ind_Batt] = 0
-
-                    for y in self.listYearsVehicle:
-                        # Calculate and assign values based on market share and battery data
-                        Vehicle_Sales.loc[v_PM_Batt, y] = (
-                                VehicleType_Sales.loc[v, y]
-                                * self.MS_Motor.loc['MS', 'Motor_PM']
-                                * self.MS_Battery.loc[b, y]
-                        )
-
-                        Vehicle_Sales.loc[v_ind_Batt, y] = (
-                                VehicleType_Sales.loc[v, y]
-                                * self.MS_Motor.loc['MS', 'Motor_induction']
-                                * self.MS_Battery.loc[b, y]
-                        )
-        '''
 
         # Create a dF with the demand in stock of vehicle, for each years
         Vehicle_Growth = pd.DataFrame(0, index=[], columns=self.listYearsTot[1:])
@@ -720,18 +678,16 @@ class IAM_Metal_Optimisation_EV :
                     Vehicle_Growth.loc[v_PM_Batt] = 0
                     Vehicle_Growth.loc[v_ind_Batt] = 0
 
-
                     for y in self.listYearsVehicle:
                         # Add market share values, with initial assumption of only copper use in motors
                         Vehicle_Growth.loc[v_PM_Batt, y] = (
                                 VehicleType_Growth.loc[v, y]
-                                * self.MS_Motor.loc['MS', 'PM']
+                                * self.MS_Motor['PM']
                                 * self.MS_Battery.loc[b, y]
                         )
-
                         Vehicle_Growth.loc[v_ind_Batt, y] = (
                                 VehicleType_Growth.loc[v, y]
-                                * self.MS_Motor.loc['MS', 'Ind']
+                                * self.MS_Motor['Ind']
                                 * self.MS_Battery.loc[b, y]
                         )
         self.Vehicle_Growth = Vehicle_Growth
@@ -761,7 +717,7 @@ class IAM_Metal_Optimisation_EV :
         listVehicleDisag = []
         for v in self.listVehicleType:
             if v == 'ICEV':
-                # Copier directement les données pour ICEV
+                # Add unchanged ICEV projections
                 listVehicleDisag.append('ICEV')
             else:
                 for b in self.listBatteryDisag:
@@ -851,7 +807,7 @@ class IAM_Metal_Optimisation_EV :
         # Add initial recycling rates for the 2020 year
         for m in self.listMetals:
             if m in self.Initial_Recycling_Rate.index:
-                self.Recycling_Rate['2020'].loc[m] = self.Initial_Recycling_Rate['Initial_Recycling_Rate'].loc[m]
+                self.Recycling_Rate['2020'].loc[m] = self.Initial_Recycling_Rate.loc[m]
             else:
                 self.Recycling_Rate['2020'].loc[m] = 0.0
 
@@ -860,7 +816,7 @@ class IAM_Metal_Optimisation_EV :
             for m in self.listMetals:
                 if m in self.Initial_Recycling_Rate.index:
                     # Constant recycling rate
-                    self.Recycling_Rate['2050'].loc[m] = self.Initial_Recycling_Rate['Initial_Recycling_Rate'].loc[m]
+                    self.Recycling_Rate['2050'].loc[m] = self.Initial_Recycling_Rate.loc[m]
                 else:
                     self.Recycling_Rate['2050'].loc[m] = 0.0
         else:

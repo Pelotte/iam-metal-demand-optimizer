@@ -133,7 +133,7 @@ class IAM_Metal_Optimisation_EV :
 
         # Import charging factors (CF) of energy sources from the literature
         self.CF_Litt = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx',
-                                          sheet_name = 'CF_Litt', index_col=0)
+                                          sheet_name = 'CF_Litt', index_col=0)['CF_Litt']
         # Import matrix for corresponding CF of aggregated and disaggregated energy sources
         CF_Flex_Matrix_Init_Disag = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx', sheet_name = 'CF_Flexibility_Matrix', index_col=0)
         self.CF_Flex_Matrix_Disag = CF_Flex_Matrix_Init_Disag.sort_values(by='Techno ') # Rearrange matrix in the alphabetic order of technologies
@@ -283,18 +283,13 @@ class IAM_Metal_Optimisation_EV :
         Calculate Charging Factor (CF) by sub-technology, based on initial IAM CF
         '''
 
-        # 1. Add CF calculated based on IAM power capacity and energy estimates
+        # 1. Load CF data from IAM dataset
 
-        # Reads the folder with Excel files of CF from IAM dataset
-        excelCF = [f for f in os.listdir(self.CF_folder) if f.endswith('xlsx')]
+        excelCF = [f for f in os.listdir(self.CF_folder) if f.endswith("xlsx")]
+        CF_IAM = {region: pd.read_excel(os.path.join(self.CF_folder, file), index_col=0).drop("Total", axis=0)
+                  for region, file in zip(self.listRegions, excelCF)}
 
-        # Creation of a dictionary of dataFrame to stock IAM CF
-        CF_IAM = {}
-        # Copies initially calculated CF by IAM in the dictionary
-        for region_name, file in zip(self.listRegions, excelCF):
-            fileCFbyRegion = os.path.join(self.CF_folder, file)  # copies data from files in dataFrames
-            CF_IAM[region_name] = pd.read_excel(fileCFbyRegion, index_col=0)  # copies the dataFrames in dic
-            CF_IAM[region_name] = CF_IAM[region_name].drop('Total', axis=0)  # Drop the total column
+        # 2. Add missing CF from literature
 
         # List of techno included in the initial CF
         list_CF_techno = list(CF_IAM[self.listRegions[0]].index)
@@ -302,69 +297,44 @@ class IAM_Metal_Optimisation_EV :
 
         # Correct the CF for missing technology from IAM data
         for region in self.listRegions:
-            # If Hydro not in IAM data :
-            if "Hydro" not in list_CF_techno:
-                # Add CF from the literature
-                CF_IAM[region].loc["Hydro"] = self.CF_Litt.loc[
-                                              "Hydro"] * 100  # Add a line for hydro when not included, data from the literature
-            # If Oil not in IAM data :
-            if "Oil" not in list_CF_techno:
-                # Add CF from the literature
-                CF_IAM[region].loc["Oil"] = self.CF_Litt.loc[
-                                            "Oil"] * 100  # Add a line for oil when not included, data from the literaturz
+            missing_techs = {"Hydro", "Oil", "Wind Offshore", "Geothermal"}
+            for tech in missing_techs:
+                if tech not in list_CF_techno:
+                    CF_IAM[region].loc[tech] = self.CF_Litt.loc[tech] * 100
+
             # Correction of unlikely Biomass CF from IAM
             for decade in self.listDecades:
                 # If CF for Biomass is more than 85%
                 if CF_IAM[region][decade].loc["Biomass"] >= 0.85:
                     # Replace CF from IAM by CF from the literature
                     CF_IAM[region][decade].loc["Biomass"] = self.CF_Litt.loc["Biomass"] * 100
-            # If Geothermal not in IAM data :
-            if "Geothermal" not in list_CF_techno:
-                # Hypothesis of Geothermal having the same CF from IAM data than Biomass
-                CF_IAM[region].loc["Geothermal"] = CF_IAM[region].loc["Biomass"]
 
-            if "Wind Offshore" not in list_CF_techno:
-                CF_IAM[region].loc["Wind Offshore"] = self.CF_Litt["CF_Litt"].loc[
-                                                      "Wind Offshore"] * 100  # Add a line for wind offshore from the literature
-
-            CF_IAM[region] = CF_IAM[region].sort_index(axis=0)  # Sort CF techno
-
-        # Add CF_Litt for missing data
+        # Add CF from the literature for missing data
         for region in self.listRegions:
             for techno in list_CF_techno:  # Loop through years included in the initial CF
-                for year in list(CF_IAM[self.listRegions[0]].columns):  # Loop through techno included in the initial CF
-                    if np.isnan(CF_IAM[region][year].loc[techno]):  # Replace if the value is missing
-                        CF_IAM[region][year].loc[techno] = self.CF_Litt["CF_Litt"].loc[
-                                                           techno] * 100  # Take values from the litt (*100 bc percentage)
+                for year in list(CF_IAM[self.listRegions[
+                    0]].columns):  # Loop through techno included in the initial CF
+                    if np.isnan(
+                            CF_IAM[region][year].loc[techno]):  # Replace if the value is missing : "#NA"
+                        CF_IAM[region][year].loc[techno] = self.CF_Litt.loc[
+                                                               techno] * 100  # Take values from the litt (*100 bc percentage)
 
-            # Rename the line "Wind" in "Wind Onshore"
-            CF_IAM[region] = CF_IAM[region].rename(index={
-                "Wind": "Wind Onshore"})  # Wind Onshore is 90% of Wind. We suppose IAM data are applied to Wind Onshore
+            # CF from Wind Onshore supposed identical as IAM Wind
+            CF_IAM[region].rename(index={"Wind": "Wind Onshore"}, inplace=True)
+            CF_IAM[region] = CF_IAM[region].sort_index(axis=0)  # Sort CF techno
 
-        # Initialise dictionary to store disaggregated CF datas
-        CF = {}
+        # 3. Disaggregate CF to precise sub-technologies
+        CF = {region: self.CF_Flex_Matrix_Disag.T @ CF_IAM[region] for region in self.listRegions}
+
+        # 4. Adjust CF for CSP and Solar PV
         for region in self.listRegions:
-            # Transpose the matrix with the corresponding CF techno / sub-techno matrix
-            CF[region] = pd.DataFrame(self.CF_Flex_Matrix_Disag.transpose() @ CF[region])
+            for techno in self.listEnergySourcesAgg:
+                if "CSP" in techno:
+                    CF[region].loc[techno, self.listDecades] = self.CF_Litt.loc["CSP"] * 100
+                elif "Sol" in techno:
+                    CF[region].loc[techno, self.listDecades] = CF[region].loc[techno, self.listDecades[0]]
 
-        # Change the CF of CSP for those of the literature, for the decades studied
-        for region in self.listRegions:
-            for years in self.listDecades:
-                for techno in self.listEnergySourcesAgg:
-                    # if the techno is a sub-techno of solar CSP
-                    if "CSP" in techno:
-                        # replace the CF by the one from the literature
-                        CF[region][years][techno] = self.CF_Litt["CF_Litt"].loc["CSP"] * 100
-
-        # Change the CF of solar to be constant in time, for the decades studied
-        for region in self.listRegions:
-            for years in self.listDecades[1:]:  # exclude the first decade
-                for techno in self.listEnergySourcesAgg:
-                    # if the techno is a sub-techno of solar PV
-                    if "Sol" in techno:
-                        # replace the CF by the one from IAM at the first decade
-                        CF[region][years][techno] = CF[region][self.listDecades[0]][techno]
-        # Final regionalized CF for the disaggregated sub-technologies
+        # Save final CF
         self.CF = CF
 
     def Power_Capacities(self):
@@ -945,22 +915,6 @@ class IAM_Metal_Optimisation_EV :
                 # Update OSD values from the literature
                 for d in self.listDecades[1:]:
                     OSD[d].loc[m] = selected_rows[d]
-
-            '''
-            # Correction with projections from IEA, matching scenario
-            OSD_ScenarioIEA = self.OSD_litt_byScenario.loc[
-                self.OSD_litt_byScenario['Scenario'] == self.scenarioIEA]
-            for m in OSD_ScenarioIEA.index:
-                for d in self.listDecades[1:]:
-                    OSD[d].loc[m] = OSD_ScenarioIEA[d].loc[m]
-
-            # Correction with projections for different SSP, matching scenario
-            OSD_ScenarioSSP = self.OSD_litt_byScenario.loc[
-                self.OSD_litt_byScenario['Scenario'] == self.scenario[:4]]  # Match with the corresponding ssp
-            for m in OSD_ScenarioSSP.index:
-                for d in self.listDecades[1:]:
-                    OSD[d].loc[m] = OSD_ScenarioSSP[d].loc[m]
-            '''
 
         elif growth == 'Pop':
 

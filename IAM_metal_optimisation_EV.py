@@ -169,8 +169,7 @@ class IAM_Metal_Optimisation_EV :
         self.MS_Vehicle_Type = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='MS_Vehicle',
                                              index_col=0)
         # Import market share of EV battery, by battery, by year [%]
-        self.MS_Battery = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='MS_Battery',
-                                        index_col=0)
+        self.MS_Battery = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='MS_Battery')
         # Import market share of EV motor, fixed in time [%]
         self.MS_Motor = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx',
                                       sheet_name='MS_Motor', index_col=0).loc['MS']
@@ -408,11 +407,6 @@ class IAM_Metal_Optimisation_EV :
                 # Transpose initial IAM power cap and MS matrix of sub-techno correspondence
                 self.s0[r][y] = pd.DataFrame(MarketShare_df[y].transpose() @ IAM_initial_data[r][y])
 
-        if self.ModelisationType =='Opti':
-            self.listEnergySourcesIAM = self.listEnergySourcesAgg
-        if self.ModelisationType =='Init':
-            self.listEnergySourcesIAM = self.listEnergySources
-
     def Demand_Network_Storage(self):
         '''
         Estimate the demand in metal for grid and storage sectors
@@ -547,7 +541,7 @@ class IAM_Metal_Optimisation_EV :
             # Linear interpolation for missing years between decades
             Stock_IAM = Stock_IAM.reindex(self.listYearsTot)
             Stock_IAM = Stock_IAM.interpolate(method='linear')
-            # In million of vehicles, to match MI in g/vehicles
+            # In milions of vehicles, to match MI in g/vehicles
             Stock_IAM = Stock_IAM * 10 ** 3 / 19300
 
             for y in self.listYearsTot:
@@ -559,8 +553,6 @@ class IAM_Metal_Optimisation_EV :
             Stock_MATILDA = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='Vehicle_Stock',
                                           index_col=0)
 
-            # Take only Vehicle Demand for the global region
-            Stock_MATILDA = Stock_MATILDA[Stock_MATILDA["Region"] == 'GLOBAL']
             # The low scenario is chosen, because it is the closest to IAM estimations
             Stock_MATILDA = Stock_MATILDA[Stock_MATILDA["Stock_scenario"] == 'Low']
 
@@ -585,6 +577,25 @@ class IAM_Metal_Optimisation_EV :
         self.MS_Vehicle_Type = self.MS_Vehicle_Type[self.MS_Vehicle_Type["scenario"] == scenarioIEA_VE]
         # Change time values to string
         self.MS_Vehicle_Type['year'] = self.MS_Vehicle_Type['year'].astype(str)
+
+        # Identify columns that represent years (exclude non-numeric columns)
+        year_cols = [col for col in self.MS_Battery.columns if isinstance(col, int) or str(col).isdigit()]
+        # Generate the full list of years from 2020 to 2050
+        listYearsBattery = list(range(2018, 2051))
+        # Reindex year columns to include missing years
+        self.MS_Battery_interp = self.MS_Battery.set_index(["Battery_type", "Scenario"]).reindex(columns=listYearsBattery)
+        # Apply linear interpolation for missing values
+        self.MS_Battery_interp = self.MS_Battery_interp.interpolate(method='linear', axis=1)
+        # Convert column names to strings for consistency
+        self.MS_Battery_interp.columns = self.MS_Battery_interp.columns.astype(str)
+        # Merge back non-numeric columns
+        self.MS_Battery = self.MS_Battery[["Battery_type", "Scenario", "Ref", "Hypothesis"]].merge(
+            self.MS_Battery_interp, on=["Battery_type", "Scenario"]
+        )
+        # Set "Battery_type" as the index
+        self.MS_Battery.set_index("Battery_type", inplace=True)
+
+
 
         # New installation of vehicles vT at the year y because of growth
         VehicleType_Growth = pd.DataFrame(index=self.listVehicleType, columns=self.listYearsTot[1:])
@@ -620,19 +631,6 @@ class IAM_Metal_Optimisation_EV :
 
         # Years from 2018 to 2050
         self.listYearsVehicle = self.listYearsTot[13:]
-
-
-        # Scenario for MS of batteries from IRENA
-        scenarioIRENA_battery = str()
-        if self.scenario.startswith('SSP1'):
-            scenarioIRENA_battery = 'Increased Innovation Scenario'
-        elif self.scenario.startswith('SSP2') or self.scenario.startswith('SSP5'):
-            scenarioIRENA_battery = 'Current Trend Scenario'
-        else:
-            scenarioIRENA_battery = 'Technology Stagnation Scenario'
-
-        # Select only the data of the scenario studied, thanks to the column scenario
-        self.MS_Battery = self.MS_Battery[self.MS_Battery["Scenario"] == scenarioIRENA_battery]
 
         # Create a dF with the demand in stock of vehicle, for each years
         Vehicle_Growth = pd.DataFrame(0, index=[], columns=self.listYearsTot[1:])
@@ -745,26 +743,27 @@ class IAM_Metal_Optimisation_EV :
 
         for v in self.listVehicleAgg:
             # Add metal intensities of vehicles by vehicle type
-            for v_agg in self.listVehicleType:
-                if v_agg in v:
+            for vT in self.listVehicleType:
+                if vT in v:
                     for m in self.MI_VehicleType.index:
-                        MI_VehicleAgg.loc[m][v] += self.MI_VehicleType.loc[m][v_agg]
+                        MI_VehicleAgg.loc[m][v] += self.MI_VehicleType.loc[m][vT]
             # Add metal intensities of vehicles by battery type
             for b in self.listBatteryAgg:
                 if b in v:
-                    for v_agg in self.listVehicleType:
-                        if v_agg in v:
+                    for vT in self.listVehicleType:
+                        if vT in v:
                             for m in self.MI_Battery.index:
-                                MI_VehicleAgg.loc[m][v] += self.MI_Battery.loc[m][b] * self.Vehicle_stat.loc['Battery'][
-                                    v_agg]
+                                MI_VehicleAgg.loc[m][v] += (self.MI_Battery.loc[m][b]
+                                                            * self.Vehicle_stat.loc['Battery'][vT])
             # Add metal intensities of vehicles by motor type
-            for mo in self.listMotor:
+            for mo in self.listMotorAgg:
                 if mo in v:
-                    for v_agg in self.listVehicleType:
-                        if v_agg in v:
+                    for vT in self.listVehicleType:
+                        if vT in v:
                             for m in self.MI_Motor.index:
                                 MI_VehicleAgg.loc[m][v] += self.MI_Motor.loc[m][mo]
         self.MI_VehicleAgg = MI_VehicleAgg
+        print(MI_VehicleAgg)
 
     def EV_Recycling(self):
         '''
@@ -828,8 +827,13 @@ class IAM_Metal_Optimisation_EV :
 
         # 1. Estimate OSD by year in 2020
 
+        if self.ModelisationType =='Opti':
+            self.listEnergySourcesIAM = self.listEnergySourcesAgg
+        if self.ModelisationType =='Init':
+            self.listEnergySourcesIAM = self.listEnergySources
+
         # New capacity installed between 2010 and 2020, by techno
-        new2020Capacity_d = pd.DataFrame(0.0, index=self.listEnergySourcesAgg, columns=['2020'])
+        new2020Capacity_d = pd.DataFrame(0.0, index=self.listEnergySourcesIAM, columns=['2020'])
         for t in self.listEnergySourcesIAM:
             for r in self.listRegions:
                 # Only account if there is an increase in capacity
@@ -841,7 +845,8 @@ class IAM_Metal_Optimisation_EV :
         # Metal demand for the new installed capacity at the year 2020
         PowerMetalDemand_y = pd.DataFrame(0.0, index=self.listMetals, columns=['2020'])
         for m in self.listMetals:
-            for t in self.listEnergySourcesAgg:
+            for t in self.listEnergySourcesIAM:
+                # Add metal intensity of aggregated techno for the opti scenario
                 if t == 'Sol_Thin_Film' or t == 'Wind_Onshore':
                     # Aggregated MI data, with 2010 market share
                     PowerMetalDemand_y['2020'].loc[m] = PowerMetalDemand_y['2020'].loc[m] + \
@@ -861,9 +866,10 @@ class IAM_Metal_Optimisation_EV :
         for m in self.listMetals:
             # Total prod in 2020 - Metal for grid and storage - Metal for powCap installation in 2020 - Metal for EV
             InitialOSD = ((self.Prod['2020'].loc[m] - (self.Storage_Demand['2020'].loc[m]+self.Network_Demand['2020'].loc[m]) / self.Recovery_Rates['RR_Prod'].loc[m]
-                          -self.PowerMetalDemand_y['2020'].loc[m] / self.Recovery_Rates['RR_Prod'].loc[m])
+                          - self.PowerMetalDemand_y['2020'].loc[m] / self.Recovery_Rates['RR_Prod'].loc[m])
                           - sum(self.x0.loc[v, '2020'] * self.MI_VehicleAgg.loc[m][v] / self.Recovery_Rates['RR_Prod'].loc[m] for v in self.listVehicleAgg))
             # Change OSD value only if it is above 0, if not : = 0.
+
             if InitialOSD > 0:
                 OSD["2020"].loc[m] = InitialOSD
 
@@ -1387,7 +1393,7 @@ class IAM_Metal_Optimisation_EV :
 
             StorageDemand[m] = sum(
                 self.Storage_Demand.loc[m][y] / self.Recovery_Rates['RR_Reserve'].loc[m] for y in self.listYears)
-            OtherSectorDemand[m] = + self.OSD['2020'].loc[m] + sum(
+            OtherSectorDemand[m] = self.OSD['2020'].loc[m] + sum(
                 (self.OSD[self.listDecades[d]].loc[m] + self.OSD[self.listDecades[d - 1]].loc[m]) * 10 / 2 for d in
                 range(1, len(self.listDecades)))
             # Concatenate the Series along axis 1 (columns), specifying keys for the resulting DataFrame

@@ -763,7 +763,6 @@ class IAM_Metal_Optimisation_EV :
                             for m in self.MI_Motor.index:
                                 MI_VehicleAgg.loc[m][v] += self.MI_Motor.loc[m][mo]
         self.MI_VehicleAgg = MI_VehicleAgg
-        print(MI_VehicleAgg)
 
     def EV_Recycling(self):
         '''
@@ -861,6 +860,7 @@ class IAM_Metal_Optimisation_EV :
                                                         new2020Capacity_d['2020'].loc[t] / 10 * \
                                                         self.MetalIntensity_doc['2020'][t].loc[m]
         self.PowerMetalDemand_y = PowerMetalDemand_y
+
 
         # Initialise the data from 2020 with actual known metal prod in 2020 - metal demand for the transition [t/y]
         for m in self.listMetals:
@@ -1143,8 +1143,6 @@ class IAM_Metal_Optimisation_EV :
                                                       - self.model.Res_relax[m]
                                                       <= self.Reserves_Resources_Data[self.ResLimit].loc[m])
 
-        # model.constraint_DemandCumulated.pprint()
-
     def CstrMetal_Mining(self):
         '''
         Constrain the model to limit annual metal demand under the estimated metal production
@@ -1349,10 +1347,11 @@ class IAM_Metal_Optimisation_EV :
 
             # Network optimised results
             Network_opti_dic = self.model.n.get_values()
-            res_Network = pd.DataFrame(index=self.listMetals, columns=self.listYears)
-            for m in self.listMetals:
-                for y in self.listYears:
-                    res_Network.loc[m][y] = Network_opti_dic[m, y]*10**6
+            res_Network = pd.DataFrame(0.0, index=self.listMetals, columns=self.listYears)
+            for y in self.listYears:
+                for m in self.listMetals:
+                    if m in ['Copper', 'Aluminium']:
+                        res_Network[y].loc[m] = Network_opti_dic[m, y]*10**6
             self.res_Network = res_Network
 
             # EV optimised results

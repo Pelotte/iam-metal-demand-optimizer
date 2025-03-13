@@ -197,7 +197,7 @@ class IAM_Metal_Optimisation_EV :
                                                      sheet_name='Recovery_Rates', index_col=0)
         # Metal production in 2020 [t]
         self.Prod_2020 = pd.read_excel(self.folder_path + 'Prod&Demand_Other_Sectors.xlsx',
-                                            sheet_name='Prod_2020', index_col=0)
+                                            sheet_name='Prod_2020_Beta', index_col=0)['Prod_2020']
         # Creation of a list of metals with known ResLimit (exclusion of metals with unknown reserve or resources)
         self.listMetals_knownRes = self.listMetals.copy()  # Create a copy of all the metals studied
         for metal in self.listMetals:
@@ -488,13 +488,13 @@ class IAM_Metal_Optimisation_EV :
         # Initialize DataFrame for final mining production with metals as index and years as columns
         Prod = pd.DataFrame(index=self.listMetals, columns=self.listYears, dtype=float)
         # Fill 2020 data with actual known metal production
-        Prod["2020"] = self.Prod_2020['Prod_2020']
+        Prod["2020"] = self.Prod_2020
 
         # 1. Prod estimates based on the median production growth of historical data "Beta"
 
         # Load the historical annual growth rate (Beta) per metal [%]
         Beta = pd.read_excel(self.folder_path + 'Prod&Demand_Other_Sectors.xlsx',
-                             sheet_name='Prod_Beta_Historic', index_col=0)['Beta']
+                             sheet_name='Prod_2020_Beta', index_col=0)['Beta']
         # Compute future production assuming a yearly growth rate based on Beta
         for m in self.listMetals:
             # For metals with an estimated beta
@@ -1018,9 +1018,11 @@ class IAM_Metal_Optimisation_EV :
         self.model.ConstraintNetworkSubstitution = ConstraintList()
         for y in self.listYears:
             self.model.ConstraintNetworkSubstitution.add(
-                (self.model.n['Aluminium', y] * 2 + self.model.n['Copper', y])*10**6
-                == self.Network_Demand.loc['Aluminium', y] * 2 + self.Network_Demand.loc['Copper', y]
-            )
+                (self.model.n['Aluminium', y] * 2
+                 + self.model.n['Copper', y])*10**6
+                == self.Network_Demand.loc['Aluminium', y] * 2
+                + self.Network_Demand.loc['Copper', y])
+
 
     def CstrEnergyDemand(self):
         '''
@@ -1420,9 +1422,9 @@ class IAM_Metal_Optimisation_EV :
         EVSectorDemand = pd.DataFrame(0.0, index=self.listMetals, columns=self.listDecades)
 
         # Add initial data for 2020
-        EnergySectorDemandy['2020'] = self.PowerMetalDemand_y['2020']
-        NetworkDemandy['2020'] = self.Network_Demand['2020']
-        EVSectorDemand['2020'] = sum(self.x0.loc[v, '2020'] * self.MI_VehicleAgg[v] for v in self.listVehicleAgg)
+        EnergySectorDemandy['2020'] = self.PowerMetalDemand_y['2020']/self.Recovery_Rates['RR_Prod']
+        NetworkDemandy['2020'] = self.Network_Demand['2020']/self.Recovery_Rates['RR_Prod']
+        EVSectorDemand['2020'] = sum(self.x0.loc[v, '2020'] * self.MI_VehicleAgg[v]/self.Recovery_Rates['RR_Prod'] for v in self.listVehicleAgg)
 
         # Add data for next years
         for m in self.listMetals:
@@ -1431,12 +1433,11 @@ class IAM_Metal_Optimisation_EV :
                 # Add metals need for new installed capacity between the actual decade and the previous one
                 EnergySectorDemandy[self.listDecades[d]].loc[m] = sum(
                     self.MetalIntensity_doc[self.listDecades[d]][t].loc[m]
-                    * newCapacityD[r][self.listDecades[d]].loc[t] / 10
+                    * newCapacityD[r][self.listDecades[d]].loc[t] /(self.Recovery_Rates['RR_Prod'].loc[m]*10)
                     for t in self.listEnergySources_Ren for r in self.listRegions)
 
-                NetworkDemandy[self.listDecades[d]].loc[m] = (sum(
-                    self.res_Network.loc[m][self.listYearsTot[5 + i + 10 * d]] for i in self.list_i)
-                                                               /(self.Recovery_Rates['RR_Prod'].loc[m]*10))
+                NetworkDemandy[self.listDecades[d]].loc[m] = sum(
+                    self.res_Network.loc[m][self.listYearsTot[5 + i + 10 * d]] for i in self.list_i)/(self.Recovery_Rates['RR_Prod'].loc[m]*10)
 
                 EVSectorDemand[self.listDecades[d]].loc[m] = sum(
                     self.res_EV.loc[v, self.listYearsTot[5 + i + 10 * d]] * self.MI_Vehicle.loc[m, v]
@@ -1452,11 +1453,9 @@ class IAM_Metal_Optimisation_EV :
                 index=['Other Sector Demand', 'Storage Demand', 'Network Demand', 'EV Sector Demand','Energy Sector Demand'],columns=self.listDecades)
             for i in DemandByYear_df[m].index:
                 # Add the values for each dataSets
-                DemandByYear_df[m].loc['Energy Sector Demand'] = EnergySectorDemandy.loc[m] / \
-                                                                   self.Recovery_Rates['RR_Prod'].loc[m]
+                DemandByYear_df[m].loc['Energy Sector Demand'] = EnergySectorDemandy.loc[m]
                 DemandByYear_df[m].loc['Other Sector Demand'] = self.OSD.loc[m]
-                DemandByYear_df[m].loc['Network Demand'] = NetworkDemandy.loc[m] / \
-                                                           self.Recovery_Rates['RR_Prod'].loc[m]
+                DemandByYear_df[m].loc['Network Demand'] = NetworkDemandy.loc[m]
                 DemandByYear_df[m].loc['Storage Demand'] = self.Storage_Demand.loc[m] / self.Recovery_Rates['RR_Prod'].loc[m]
                 DemandByYear_df[m].loc['EV Sector Demand'] = self.EVSectorDemand.loc[m]
         self.DemandByYear_df = DemandByYear_df

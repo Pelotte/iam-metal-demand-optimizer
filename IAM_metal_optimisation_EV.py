@@ -557,7 +557,7 @@ class IAM_Metal_Optimisation_EV :
             # The low scenario is chosen, because it is the closest to IAM estimations
             Stock_MATILDA = Stock_MATILDA[Stock_MATILDA["Stock_scenario"] == 'Low']
             # Change time values to string, and convert in millions of vehicles
-            Stock_MATILDA = Stock_MATILDA.astype({"year": str}).set_index("year")["value"] / 10 ** 6
+            self.LDV_Stock = Stock_MATILDA.astype({"year": str}).set_index("year")["value"] / 10 ** 6
 
         # 2. Estimate vehicle sales to meet stock maintenance and growth, by vehicle type
 

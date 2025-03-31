@@ -518,165 +518,157 @@ class IAM_Metal_Optimisation_EV :
         self.Prod = Prod
 
     def EV_Market_Share(self):
+        '''
+        Estimate future vehicle demand by vehicle type, battery chemistry and engine
+        '''
 
-        # list Years from 2005 to 2050 with a step of 5
+        # 1. Estimate future Light Duty Vehicle (LDV) stock
+
+        # list Years from 2005 to 2050
         self.listYearsTot = [str(year) for year in range(2005, 2051, 1)]
 
-        self.Vehicle_Stock = pd.Series()
+        # Initialize LDV stock
+        self.LDV_Stock = pd.Series(dtype=float)
+
+        # Use IAM vehicle projection if transport data and LDV share is available
         if self.model_s0 in ['IMAGE', 'GCAM4']:
-            # LDV Ratio
+            # File path for IAM transport passenger projection
+            transport_path = f"{self.folder_path}Transport IAM/Transport_{self.model_s0}_{self.scenario}.xlsx"
+            # Load LDV share ratio
             Ratio_LDV = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='Ratio_LDV', index_col=0)
-            # initialize Stock_IAM
+            # Initialize Stock_IAM
             Stock_IAM = pd.Series(dtype=float)
 
-            # Construction du chemin vers le fichier Transport
-            path = f"{self.folder_path}Transport IAM/Transport_{self.model_s0}_{self.scenario}.xlsx"
-
-            # Vérification de l'existence du fichier et traitement
-            if os.path.exists(path):
-                table = pd.read_excel(path)
+            # Sum every region to have global transport stock
+            if os.path.exists(transport_path):
+                table = pd.read_excel(transport_path)
                 table.drop(['VARIABLE', 'REGION'], axis=1, inplace=True)
                 Stock_IAM = table.sum()
+            # Linear interpolation for missing years, conversion in millions vehicles
+            Stock_IAM = Stock_IAM.reindex(self.listYearsTot).interpolate() * (10 ** 3 / 19300)
+            # Compute LDV stock in a vectorized way
+            self.LDV_Stock = Stock_IAM * Ratio_LDV.loc[self.model_s0, 'LDV_Share']
 
-            # Linear interpolation for missing years between decades
-            Stock_IAM = Stock_IAM.reindex(self.listYearsTot)
-            Stock_IAM = Stock_IAM.interpolate(method='linear')
-            # In milions of vehicles, to match MI in g/vehicles
-            Stock_IAM = Stock_IAM * 10 ** 3 / 19300
-
-            for y in self.listYearsTot:
-                self.Vehicle_Stock[y] = Stock_IAM[y] * Ratio_LDV.loc[self.model_s0, 'LDV_Share']
-
+        # Use transport projection from the literature
         else:
-
             # Import data of stock of passenger vehicles from MATILDA
-            Stock_MATILDA = pd.read_excel(self.folder_path + 'EV_MI_MS_Recycling.xlsx', sheet_name='Vehicle_Stock',
+            Stock_MATILDA = pd.read_excel(f"{self.folder_path}EV_MI_MS_Recycling.xlsx", sheet_name='Vehicle_Stock',
                                           index_col=0)
-
             # The low scenario is chosen, because it is the closest to IAM estimations
             Stock_MATILDA = Stock_MATILDA[Stock_MATILDA["Stock_scenario"] == 'Low']
+            # Change time values to string, and convert in millions of vehicles
+            Stock_MATILDA = Stock_MATILDA.astype({"year": str}).set_index("year")["value"] / 10 ** 6
 
-            # Change time values to string
-            Stock_MATILDA['Time'] = Stock_MATILDA['Time'].astype(str)
+        # 2. Estimate vehicle sales to meet stock maintenance and growth, by vehicle type
 
-            for y in self.listYearsTot:
-                # In million of vehicles, to match MI in g/vehicles
-                self.Vehicle_Stock[y] = Stock_MATILDA.loc[(Stock_MATILDA["Time"] == y), "value"].values[0] / 10 ** 6
+        # Scenario for MS of EV from IEA
+        scenario_mapping = {'NZE': 'Net Zero', 'APS': 'SD'}
+        scenarioIEA_VE = scenario_mapping.get(self.scenarioIEA, 'STEP')
 
-        scenarioIEA_VE = str()
-
-        # Scenario for MS of vehicles from IEA
-        if self.scenarioIEA == 'NZE':
-            scenarioIEA_VE = 'Net Zero'
-        elif self.scenarioIEA == 'APS':
-            scenarioIEA_VE = 'SD'
-        else:
-            scenarioIEA_VE = 'STEP'
-
-        # Select only the data of the scenario studied, thanks to the column scenario
+        # Filter vehicle market share data based on selected IEA scenario
         self.MS_Vehicle_Type = self.MS_Vehicle_Type[self.MS_Vehicle_Type["scenario"] == scenarioIEA_VE]
-        # Change time values to string
-        self.MS_Vehicle_Type['year'] = self.MS_Vehicle_Type['year'].astype(str)
+        self.MS_Vehicle_Type["year"] = self.MS_Vehicle_Type["year"].astype(str)
 
-        # Identify columns that represent years (exclude non-numeric columns)
-        year_cols = [col for col in self.MS_Battery.columns if isinstance(col, int) or str(col).isdigit()]
-        # Generate the full list of years from 2020 to 2050
-        listYearsBattery = list(range(2018, 2051))
-        # Reindex year columns to include missing years
-        self.MS_Battery_interp = self.MS_Battery.set_index(["Battery_type", "Scenario"]).reindex(columns=listYearsBattery)
-        # Apply linear interpolation for missing values
-        self.MS_Battery_interp = self.MS_Battery_interp.interpolate(method='linear', axis=1)
-        # Convert column names to strings for consistency
-        self.MS_Battery_interp.columns = self.MS_Battery_interp.columns.astype(str)
-        # Merge back non-numeric columns
-        self.MS_Battery = self.MS_Battery[["Battery_type", "Scenario", "Ref", "Hypothesis"]].merge(
-            self.MS_Battery_interp, on=["Battery_type", "Scenario"]
-        )
-        # Set "Battery_type" as the index
-        self.MS_Battery.set_index("Battery_type", inplace=True)
-
-
-
-        # New installation of vehicles vT at the year y because of growth
         VehicleType_Growth = pd.DataFrame(index=self.listVehicleType, columns=self.listYearsTot[1:])
         for y in range(1, len(self.listYearsTot)):
             for vT in self.listVehicleType:
-                # Take the maximum value between the additional stock and 0, if there is a decrease in stock
-                VehicleType_Growth.loc[vT, self.listYearsTot[y]] = max(self.Vehicle_Stock[self.listYearsTot[y]] * self.MS_Vehicle_Type.loc[
-                    (self.MS_Vehicle_Type["drive_train"] == vT) & (
-                                self.MS_Vehicle_Type["year"] == self.listYearsTot[y]), "value"].values[0]
-                                                                  - (self.Vehicle_Stock[self.listYearsTot[y - 1]] *
-                                                                     self.MS_Vehicle_Type.loc[
-                                                                         (self.MS_Vehicle_Type["drive_train"] == vT) & (
-                                                                                     self.MS_Vehicle_Type["year"] ==
-                                                                                     self.listYearsTot[
-                                                                                         y - 1]), "value"].values[0])
-                                                                  , 0)
+                # Take the maximum value between the variation in stock by vehicle type and 0
+                VehicleType_Growth.loc[vT, self.listYearsTot[y]] = max(0,
+                                                                       (self.LDV_Stock[self.listYearsTot[y]]
+                                                                       * self.MS_Vehicle_Type.loc[
+                                                                           (self.MS_Vehicle_Type["vehicle_type"] == vT)
+                                                                           & (self.MS_Vehicle_Type["year"] ==
+                                                                              self.listYearsTot[y]), "value"].values[0])
+                                                                       - (self.LDV_Stock[self.listYearsTot[y - 1]] *
+                                                                          self.MS_Vehicle_Type.loc[
+                                                                              (self.MS_Vehicle_Type[
+                                                                                   "vehicle_type"] == vT) & (
+                                                                                      self.MS_Vehicle_Type["year"] ==
+                                                                                      self.listYearsTot[
+                                                                                          y - 1]), "value"].values[0]))
         self.VehicleType_Growth = VehicleType_Growth
 
         # New installation of vehicles to maintain the stock
         VehicleType_Maintain = pd.DataFrame(index=self.listVehicleType, columns=self.listYearsTot[13:])
         for y in range(13, len(self.listYearsTot)):
             for vT in self.listVehicleType:
-                VehicleType_Maintain.loc[vT, self.listYearsTot[y]] = self.VehicleType_Growth.loc[vT, self.listYearsTot[y - self.Lifetime_V]]
+                VehicleType_Maintain.loc[vT, self.listYearsTot[y]] = self.VehicleType_Growth.loc[vT,
+                self.listYearsTot[y - self.Lifetime_V]]
+        self.VehicleType_Maintain = VehicleType_Maintain
 
         # Create the dataFrame for sales of vehicles by vehicle type by year, from 2018 to 2050
         VehicleType_Sales = pd.DataFrame(index=self.listVehicleType, columns=self.listYearsTot[13:])
-
         for vT in self.listVehicleType:
             for y in self.listYearsTot[13:]:
                 # Stock of total vehicles at the year y * Market share by vehicle type v at the year y
                 VehicleType_Sales.loc[vT, y] = self.VehicleType_Growth.loc[vT, y] + VehicleType_Maintain.loc[vT, y]
+        self.VehicleType_Sales = VehicleType_Sales
 
+        # 3. Estimate vehicle sales to meet stock maintenance and growth, by vehicle, battery and engine type (agg)
+
+        # Interpolate battery market shares for missing years
+
+        # Identify columns that represent years (exclude non-numeric columns)
+        year_cols = [col for col in self.MS_Battery.columns if isinstance(col, int) or str(col).isdigit()]
+        # Reindex and interpolate missing year data for MS_Battery
+        self.MS_Battery_interp = self.MS_Battery.set_index(["Battery_type", "Scenario"]).reindex(
+            columns=list(range(2014, 2051)))
+        self.MS_Battery_interp = self.MS_Battery_interp.interpolate(method='linear', axis=1)
+        # Convert column names to strings and merge back non-numeric columns
+        self.MS_Battery_interp.columns = self.MS_Battery_interp.columns.astype(str)
+        self.MS_Battery = self.MS_Battery[["Battery_type", "Scenario", "Ref"]].merge(
+            self.MS_Battery_interp, on=["Battery_type", "Scenario"]
+        )
+        self.MS_Battery.set_index("Battery_type", inplace=True)
+
+        # Calculate precise vehicle growth
 
         # Years from 2018 to 2050
         self.listYearsVehicle = self.listYearsTot[13:]
 
-        # Create a dF with the demand in stock of vehicle, for each years
+        # Initialize an empty DataFrame for vehicle growth
         Vehicle_Growth = pd.DataFrame(0, index=[], columns=self.listYearsTot[1:])
-
+        # Iterate through vehicle types
         for v in self.listVehicleType:
+            # Directly copy ICEV projections without any battery-related processing
             if v == 'ICEV':
                 for y in self.listYearsTot[1:]:
-                    # Copier directement les données pour ICEV
                     Vehicle_Growth.loc[v, y] = VehicleType_Growth.loc[v, y]
             else:
+                # Iterate over battery types for non-ICEV vehicles
                 for b in self.listBatteryAgg:
-                    # Create names by motor types, for copper and aluminium
+                    # Create new vehicle names for the motor types (PM and Ind)
                     v_PM_Batt = f"{v}_PM_{b}"
-                    v_ind_Batt = f"{v}_Ind_{b}"
+                    v_Ind_Batt = f"{v}_Ind_{b}"
 
-                    # Add new lines
+                    # Initialize new rows for each vehicle type and battery
                     Vehicle_Growth.loc[v_PM_Batt] = 0
-                    Vehicle_Growth.loc[v_ind_Batt] = 0
+                    Vehicle_Growth.loc[v_Ind_Batt] = 0
 
-                    for y in self.listYearsVehicle:
-                        # Add market share values, with initial assumption of only copper use in motors
-                        Vehicle_Growth.loc[v_PM_Batt, y] = (
-                                VehicleType_Growth.loc[v, y]
-                                * self.MS_Motor['PM']
-                                * self.MS_Battery.loc[b, y]
-                        )
-                        Vehicle_Growth.loc[v_ind_Batt, y] = (
-                                VehicleType_Growth.loc[v, y]
-                                * self.MS_Motor['Ind']
-                                * self.MS_Battery.loc[b, y]
-                        )
+                    # Get market share values once for the battery type
+                    MS_Batt = self.MS_Battery.loc[b]
+
+                    # Compute vehicle growth for each year using vectorized operations
+                    # from 2014 to 2050 (first apparition of BEV vehicle)
+                    for y in self.listYearsTot[9:]:
+                        Vehicle_Growth.loc[v_PM_Batt, y] = (VehicleType_Growth.loc[v, y]
+                                                            * self.MS_Motor['PM'] * MS_Batt[y])
+                        Vehicle_Growth.loc[v_Ind_Batt, y] = (VehicleType_Growth.loc[v, y]
+                                                             * self.MS_Motor['Ind'] * MS_Batt[y])
+        # Store the final vehicle growth data
         self.Vehicle_Growth = Vehicle_Growth
 
-        # list of vehicles, with vehicle type, motor type, and aggregated battery types
+        # Generate the list of aggregated vehicle types
         self.listVehicleAgg = self.Vehicle_Growth.index.tolist()
 
         # New installation of vehicles to maintain the stock
         self.Vehicle_Maintain = pd.DataFrame(index=self.listVehicleAgg, columns=self.listYearsTot[13:])
         for y in range(13, len(self.listYearsTot)):
             for v in self.listVehicleAgg:
-                self.Vehicle_Maintain.loc[v, self.listYearsTot[y]] = Vehicle_Growth.loc[
-                    v, self.listYearsTot[y - self.Lifetime_V]]
+                self.Vehicle_Maintain.loc[v, self.listYearsTot[y]] = Vehicle_Growth.loc[v, self.listYearsTot[y - self.Lifetime_V]]
 
         # Create the dataFrame for sales of vehicles type by year, from 2018 to 2050
         self.Vehicle_Sales = pd.DataFrame(index=self.listVehicleAgg, columns=self.listYearsVehicle)
-
         for v in self.listVehicleAgg:
             for y in self.listYearsVehicle:
                 # Stock of total vehicles at the year y * Market share by vehicle type v at the year y
@@ -1053,26 +1045,27 @@ class IAM_Metal_Optimisation_EV :
                 self.model.ConstraintVehicleGrowth.add(self.model.x_growth[vT, y] == self.VehicleType_Growth.loc[vT, y])
 
         self.model.ConstraintVehicleMaintain = ConstraintList()
+        # from 2018 to 2050
         for y in range(1 + self.Lifetime_V, len(self.listYearsTot)):
             for vT in self.listVehicleType:
                 self.model.ConstraintVehicleMaintain.add(self.model.x_maintain[vT, self.listYearsTot[y]]
                                                          == self.model.x_growth[vT, self.listYearsTot[y - self.Lifetime_V]])
 
         self.model.ConstraintVehicleSold = ConstraintList()
-        for y in range(3, len(self.listYearsVehicle)):
+        for y in range(0, len(self.listYearsVehicle)):
             for vT in self.listVehicleType:
                 self.model.ConstraintVehicleSold.add(
-                    sum(self.model.x[v, self.listYearsVehicle[y]] for v in self.listVehicle if vT in v)
+                    sum(self.model.x[v, self.listYearsVehicle[y]] for v in self.listVehicle if v.startswith(vT))
                     == self.model.x_growth[vT, self.listYearsVehicle[y]]
                     + self.model.x_maintain[vT, self.listYearsVehicle[y]]
                     )
-
 
     def CstrTechnoCoherence(self):
         '''
         Constraint model to keep the initial EV mix and IAM mix for 2020,
         and to keep the installed capacity of the previous decade during the following years
         '''
+
 
         # Creation of a list of constraint to add coherence in the optimised EV mix of 2020
         self.model.constraintEVCoherence2020 = ConstraintList()
@@ -1129,7 +1122,7 @@ class IAM_Metal_Optimisation_EV :
                 sum(self.model.x[v, self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m][v] for v in self.listVehicle)
                 - self.model.x_growth['ICEV', self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m]['ICEV'] for y in
                 range(2, 12))/self.Recovery_Rates['RR_Reserve'].loc[m]
-                                                      # Metal demand to create the vehicle stock with recycling between 2030 and 2040
+                                                      # Metal demand to create the vehicle stock with recycling between 2030 and 2050
                                                       + sum(
                 (self.model.x[v, self.listYearsVehicle[y]] - self.model.x[v, self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]]) * self.MI_Vehicle.loc[m][v] /
                 self.Recovery_Rates['RR_Reserve'].loc[m] for v in self.listVehicle for y in range(12, len(self.listYearsVehicle)))

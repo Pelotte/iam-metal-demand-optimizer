@@ -126,6 +126,12 @@ class IAM_Metal_Optimisation_EV :
 
         # 4. Data from literature linked to power capacities
 
+        # Import metal intensities for specific energy sources [t/GW]
+        self.MetalIntensity = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx', sheet_name='MI', index_col=0)
+        # Import metal intensities for aggregated energy sources, based on actual market shares [t/GW]
+        self.MetalIntensity_Agg = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx', sheet_name='MI_Agg_2010',
+                                                index_col=0)
+
         # Import data for biomass availability by decade [GW], for different scenario
         self.Biomass_availability = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx', sheet_name = 'Biomass_Avail' , index_col=0)
         # Import data for hydroelectricity availability by region [GW], for different scenario
@@ -216,66 +222,7 @@ class IAM_Metal_Optimisation_EV :
         self.MetalIntensityReduction = pd.read_excel(self.folder_path + 'Prod&Demand_Other_Sectors.xlsx',
                                                      sheet_name='Metal_Intensity_Reduction', index_col=0)
 
-    def Power_Metal_Intensity(self):
-        '''
-        Calculation of the evolution of the metal intensity of energy sources technology, according
-        to the scenario SSP chosen.
-        :return: Metal intensity in tons of metal per GW of energy sources, with evolution in time [t/GW]
-        '''
 
-        # Import metal intensities for specific energy sources [t/GW]
-        MetalIntensity = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx', sheet_name = 'MI',index_col=0)
-        # Import metal intensities for aggregated energy sources, based on actual market shares [t/GW]
-        self.MetalIntensity_Agg = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx', sheet_name='MI_Agg_2010',
-                                           index_col=0)
-
-        # Creation of a dictionary for the Metal Intensity of technologies over time
-        MetalIntensity_doc = {}
-        # Take the initial data for the first decade metal intensity
-        MetalIntensity_doc[self.listDecades[0]] = MetalIntensity
-
-        # Tab of different scenario of metal intensity reduction
-        ReductionScenario = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx', sheet_name='MI_reduction_scenario',
-                                          index_col=0)
-        # Load categorization of metals : bulk vs techno-specific
-        MetalCategorisation = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx',
-                                            sheet_name='Metal_categorisation', index_col=0)
-        # Create sub-list of metals for each category according to the table categorization
-        listBulkMetals = [m for m in self.listMetals if MetalCategorisation['Bulk metals'].loc[m] == 'x']
-        listEnergySourcesSpecificMetals = [m for m in self.listMetals if MetalCategorisation['Technology-specific'].loc[m] == 'x']
-
-        # Create a variable to stock the scenario of metal intensity reduction, according to the scenario ssp
-        MI_reduc_scenario = str()
-        if self.scenario.startswith('SSP1'):
-            MI_reduc_scenario = 'Optimistic'
-        elif self.scenario.startswith('SSP2') or self.scenario.startswith('SSP5'):
-            MI_reduc_scenario = 'Neutral'
-        elif self.scenario.startswith('SSP3') or self.scenario.startswith('SSP4'):
-            MI_reduc_scenario = 'Conservative'
-
-        # Reductions for each category of metals, according to the scenario ssp
-        bulk_reduction = (100 - ReductionScenario[MI_reduc_scenario].loc['Bulk metals']) / 100
-        techno_specific_reduction = (100 - ReductionScenario[MI_reduc_scenario].loc['Technology-specific']) / 100
-        # Iterate over the years starting from the first consecutive year
-        for y in range(1, len(self.listYears)):
-            current_year = self.listYears[y]
-            previous_year = self.listYears[y - 1]
-
-            # Create a DataFrame for the current year
-            MetalIntensity_doc[current_year] = pd.DataFrame(index=self.listMetals, columns=self.listEnergySources)
-
-            for t in self.listEnergySources:
-                # Apply the MI reduction in time for bulk metals
-                MetalIntensity_doc[current_year].loc[listBulkMetals, t] = (
-                        MetalIntensity_doc[previous_year].loc[listBulkMetals, t] * bulk_reduction
-                )
-                # Apply the MI reduction in time for technology-specific metals
-                MetalIntensity_doc[current_year].loc[listEnergySourcesSpecificMetals, t] = (
-                        MetalIntensity_doc[previous_year].loc[listEnergySourcesSpecificMetals, t] * techno_specific_reduction
-                )
-        # Final need in metal m for the techno t at the decade d
-        # in [t/GW] with reduction in time according to ssp
-        self.MetalIntensity_doc = MetalIntensity_doc
 
     def Power_Charging_Factor(self):
         '''
@@ -846,11 +793,11 @@ class IAM_Metal_Optimisation_EV :
                 elif t == 'Sol_C-si':  # All Sol_C-Si techno is based on silver before 2020
                     PowerMetalDemand_y['2020'].loc[m] = PowerMetalDemand_y['2020'].loc[m] + \
                                                         new2020Capacity_d['2020'].loc[t] / 10 * \
-                                                        self.MetalIntensity_doc['2020']['Sol_C-si_Silver'].loc[m]
+                                                        self.MetalIntensity['Sol_C-si_Silver'].loc[m]
                 else:
                     PowerMetalDemand_y['2020'].loc[m] = PowerMetalDemand_y['2020'].loc[m] + \
                                                         new2020Capacity_d['2020'].loc[t] / 10 * \
-                                                        self.MetalIntensity_doc['2020'][t].loc[m]
+                                                        self.MetalIntensity[t].loc[m]
         self.PowerMetalDemand_y = PowerMetalDemand_y
 
 
@@ -1110,33 +1057,32 @@ class IAM_Metal_Optimisation_EV :
         '''
         Constrain the model to limit cumulated metal demand in 2050 under the ResLimit restriction
         '''
-
         self.model.constraint_DemandCumulated = ConstraintList()
 
         for m in self.listMetals_knownRes:
             self.model.constraint_DemandCumulated.add(sum((self.model.s[r,t,self.listDecades[d]]-self.model.s[r,t,self.listDecades[d-1]])
-                                          *((self.MetalIntensity_doc[self.listDecades[d]][t].loc[m]+self.MetalIntensity_doc[self.listDecades[d-1]][t].loc[m])/2)
-                                          /self.Recovery_Rates['RR_Reserve'].loc[m] for t in self.listEnergySources_Ren for r in self.listRegions for d in range(1, len(self.listDecades)))
-                                                      # Metal demand to create the vehicle stock with recycling between 2020 and 2030
-                                                      + sum(
-                sum(self.model.x[v, self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m][v] for v in self.listVehicle)
-                - self.model.x_growth['ICEV', self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m]['ICEV'] for y in
-                range(2, 12))/self.Recovery_Rates['RR_Reserve'].loc[m]
-                                                      # Metal demand to create the vehicle stock with recycling between 2030 and 2050
-                                                      + sum(
-                (self.model.x[v, self.listYearsVehicle[y]] - self.model.x[v, self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]]) * self.MI_Vehicle.loc[m][v] /
-                self.Recovery_Rates['RR_Reserve'].loc[m] for v in self.listVehicle for y in range(12, len(self.listYearsVehicle)))
+                                      *self.MetalIntensity[t].loc[m]
+                                      /self.Recovery_Rates['RR_Reserve'].loc[m] for t in self.listEnergySources_Ren for r in self.listRegions for d in range(1, len(self.listDecades)))
+                                                  # Metal demand to create the vehicle stock with recycling between 2020 and 2030
+                                                  + sum(
+            sum(self.model.x[v, self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m][v] for v in self.listVehicle)
+            - self.model.x_growth['ICEV', self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m]['ICEV'] for y in
+            range(2, 12))/self.Recovery_Rates['RR_Reserve'].loc[m]
+                                                  # Metal demand to create the vehicle stock with recycling between 2030 and 2050
+                                                  + sum(
+            (self.model.x[v, self.listYearsVehicle[y]] - self.model.x[v, self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]]) * self.MI_Vehicle.loc[m][v] /
+            self.Recovery_Rates['RR_Reserve'].loc[m] for v in self.listVehicle for y in range(12, len(self.listYearsVehicle)))
 
-                                                      + sum(self.Storage_Demand.loc[m][y] / self.Recovery_Rates['RR_Reserve'].loc[m]
-                                                            for y in self.listYears)
-                                                      # Metal demand cumulated for network grid
-                                                      + sum(
-                self.model.n[m, y]*10**6 / self.Recovery_Rates['RR_Reserve'].loc[m] for y in self.listYears)
-                                                      + sum(
-                (self.OSD[self.listDecades[d]].loc[m] + self.OSD[self.listDecades[d - 1]].loc[m]) * 10 / 2 for d in
-                range(1, len(self.listDecades)))
-                                                      - self.model.Res_relax[m]
-                                                      <= self.Reserves_Resources_Data[self.ResLimit].loc[m])
+                                                  + sum(self.Storage_Demand.loc[m][y] / self.Recovery_Rates['RR_Reserve'].loc[m]
+                                                        for y in self.listYears)
+                                                  # Metal demand cumulated for network grid
+                                                  + sum(
+            self.model.n[m, y]*10**6 / self.Recovery_Rates['RR_Reserve'].loc[m] for y in self.listYears)
+                                                  + sum(
+            (self.OSD[self.listDecades[d]].loc[m] + self.OSD[self.listDecades[d - 1]].loc[m]) * 10 / 2 for d in
+            range(1, len(self.listDecades)))
+                                                  - self.model.Res_relax[m]
+                                                  <= self.Reserves_Resources_Data[self.ResLimit].loc[m])
 
     def CstrMetal_Mining(self):
         '''
@@ -1146,13 +1092,11 @@ class IAM_Metal_Optimisation_EV :
         '''
 
         def renewable_demand(m, d):
-            return sum(
-                self.MetalIntensity_doc[self.listDecades[d]][t].loc[m]
+            return sum(self.MetalIntensity[t].loc[m]
                 * (self.model.s[r, t, self.listDecades[d]] - self.model.s[r, t, self.listDecades[d - 1]])
-                / self.Recovery_Rates['RR_Prod'].loc[m]
-                for t in self.listEnergySources_Ren
-                for r in self.listRegions
-            ) / 10
+                / (self.Recovery_Rates['RR_Prod'].loc[m]*10)
+                for t in self.listEnergySources_Ren for r in self.listRegions
+                    )
 
         def network_storage_demand(m, d):
             return (sum(
@@ -1370,20 +1314,19 @@ class IAM_Metal_Optimisation_EV :
         OtherSectorDemand = pd.Series()
         # Add data for each Series
         for m in self.listMetals:
-            EnergySectorDemand[m] = sum(
+            EnergySectorDemand[m] = max(0,sum(
                 (self.res_dic[r].loc[t][self.listDecades[d]] - self.res_dic[r].loc[t][self.listDecades[d - 1]])
-                * ((self.MetalIntensity_doc[self.listDecades[d]][t].loc[m] +
-                    self.MetalIntensity_doc[self.listDecades[d - 1]][t].loc[m]) / 2)
+                * self.MetalIntensity[t].loc[m]
                 / self.Recovery_Rates['RR_Reserve'].loc[m] for t in self.listEnergySources_Ren for r in self.listRegions for d
-                in range(1, len(self.listDecades)))
+                in range(1, len(self.listDecades))))
             NetworkDemand[m] = sum(self.res_Network.loc[m][y] / self.Recovery_Rates['RR_Reserve'].loc[m] for y in self.listYears)
-            EVSectorDemand[m] = (sum(sum(self.res_EV.loc[v, self.listYearsVehicle[y]]* self.MI_Vehicle.loc[m][v] for v in self.listVehicle)
+            EVSectorDemand[m] = max(0,(sum(sum(self.res_EV.loc[v, self.listYearsVehicle[y]]* self.MI_Vehicle.loc[m][v] for v in self.listVehicle)
                                          - self.VehicleType_Growth.loc['ICEV', self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m]['ICEV']
                                          for y in range(2, 12))/ self.Recovery_Rates['RR_Reserve'].loc[m]
                                  + sum((self.res_EV.loc[v, self.listYearsVehicle[y]]
                                         - self.res_EV.loc[v, self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]])
                                        * self.MI_Vehicle.loc[m][v] / self.Recovery_Rates['RR_Reserve'].loc[m]
-                                       for v in self.listVehicle for y in range(12, len(self.listYearsVehicle))))
+                                       for v in self.listVehicle for y in range(12, len(self.listYearsVehicle)))))
 
             StorageDemand[m] = sum(
                 self.Storage_Demand.loc[m][y] / self.Recovery_Rates['RR_Reserve'].loc[m] for y in self.listYears)
@@ -1402,8 +1345,7 @@ class IAM_Metal_Optimisation_EV :
             newCapacityD[r] = pd.DataFrame(0.0, index=self.listEnergySources, columns=self.listDecades[1:])
             for t in self.listEnergySources:
                 for d in range(1, len(self.listDecades)):
-                    if self.res_dic[r].loc[t][self.listDecades[d]] - self.res_dic[r].loc[t][
-                        self.listDecades[d - 1]] > 0:  # Changes the value only for an addition of capacity
+                    if self.res_dic[r].loc[t][self.listDecades[d]] - self.res_dic[r].loc[t][self.listDecades[d - 1]] > 0:  # Changes the value only for an addition of capacity
                         newCapacityD[r][self.listDecades[d]].loc[t] = self.res_dic[r].loc[t][self.listDecades[d]] - \
                                                                       self.res_dic[r].loc[t][
                                                                           self.listDecades[d - 1]]
@@ -1422,12 +1364,11 @@ class IAM_Metal_Optimisation_EV :
         # Add data for next years
         for m in self.listMetals:
             for d in range(1, len(self.listDecades)):
-
                 # Add metals need for new installed capacity between the actual decade and the previous one
-                EnergySectorDemandy[self.listDecades[d]].loc[m] = sum(
-                    self.MetalIntensity_doc[self.listDecades[d]][t].loc[m]
+                EnergySectorDemandy[self.listDecades[d]].loc[m] = max(0,sum(
+                    self.MetalIntensity[t].loc[m]
                     * newCapacityD[r][self.listDecades[d]].loc[t] /(self.Recovery_Rates['RR_Prod'].loc[m]*10)
-                    for t in self.listEnergySources_Ren for r in self.listRegions)
+                    for t in self.listEnergySources_Ren for r in self.listRegions))
 
                 NetworkDemandy[self.listDecades[d]].loc[m] = sum(
                     self.res_Network.loc[m][self.listYearsTot[5 + i + 10 * d]] for i in self.list_i)/(self.Recovery_Rates['RR_Prod'].loc[m]*10)

@@ -802,6 +802,11 @@ class IAM_Metal_Optimisation_EV :
                     PowerMetalDemand_y['2020'].loc[m] = PowerMetalDemand_y['2020'].loc[m] + \
                                                         new2020Capacity_d['2020'].loc[t] / 10 * \
                                                         self.MetalIntensity['Sol_CSP_tower_Ag_GaAs'].loc[m]
+
+                elif t == 'Nuclear':  # All CSP tower techno is based on Ag GaAs before 2020
+                    PowerMetalDemand_y['2020'].loc[m] = PowerMetalDemand_y['2020'].loc[m] + \
+                                                        new2020Capacity_d['2020'].loc[t] / 10 * \
+                                                        self.MetalIntensity['Nuclear_PWR'].loc[m]
                 else:
                     PowerMetalDemand_y['2020'].loc[m] = PowerMetalDemand_y['2020'].loc[m] + \
                                                         new2020Capacity_d['2020'].loc[t] / 10 * \
@@ -952,8 +957,7 @@ class IAM_Metal_Optimisation_EV :
 
             + sum(self.M * (self.model.Res_relax[m] / self.Reserves_Resources_Data[self.ResLimit].loc[m]) for m in self.listMetals_knownRes)
             + sum(self.M * (self.model.Mining_relax[m, d] / self.Prod[d].loc[m]) for m in self.listMetals for d in self.listDecades)
-            + sum((self.model.CoherentMix_relax[r, t_r, d]) for r in self.listRegions for t_r in self.listEnergySources_Ren for d in self.listDecades)
-            #+ sum(self.M * (self.model.Stock_relax[vT, y]) ** 2 for vT in self.listVehicleType for y in self.listYearsVehicle)
+            + sum(self.M *(self.model.CoherentMix_relax[r, t_r, d]) for r in self.listRegions for t_r in self.listEnergySources_Ren for d in self.listDecades)
             , sense=minimize)
 
     def CstrNetworkSubstitution(self):

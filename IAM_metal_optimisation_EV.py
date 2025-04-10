@@ -794,6 +794,14 @@ class IAM_Metal_Optimisation_EV :
                     PowerMetalDemand_y['2020'].loc[m] = PowerMetalDemand_y['2020'].loc[m] + \
                                                         new2020Capacity_d['2020'].loc[t] / 10 * \
                                                         self.MetalIntensity['Sol_C-si_Silver'].loc[m]
+                elif t == 'Sol_CSP_parabol':  # All CSP parabolic techno is based on Ag GaAs before 2020
+                    PowerMetalDemand_y['2020'].loc[m] = PowerMetalDemand_y['2020'].loc[m] + \
+                                                        new2020Capacity_d['2020'].loc[t] / 10 * \
+                                                        self.MetalIntensity['Sol_CSP_parabol_Ag_GaAs'].loc[m]
+                elif t == 'Sol_CSP_tower':  # All CSP tower techno is based on Ag GaAs before 2020
+                    PowerMetalDemand_y['2020'].loc[m] = PowerMetalDemand_y['2020'].loc[m] + \
+                                                        new2020Capacity_d['2020'].loc[t] / 10 * \
+                                                        self.MetalIntensity['Sol_CSP_tower_Ag_GaAs'].loc[m]
                 else:
                     PowerMetalDemand_y['2020'].loc[m] = PowerMetalDemand_y['2020'].loc[m] + \
                                                         new2020Capacity_d['2020'].loc[t] / 10 * \
@@ -910,7 +918,7 @@ class IAM_Metal_Optimisation_EV :
         self.model.x_growth = Var(self.listVehicleType, self.listYearsTot[1:], initialize=0, domain=NonNegativeReals)
         # Millions of vehicles sold to maintain stock of previous years, by vehicle type, at the year y
         self.model.x_maintain = Var(self.listVehicleType, self.listYearsVehicle, initialize=0, domain=NonNegativeReals)
-        # Million tons of Copper and Aluminium demand for grid network, at the year y
+        # Million tons of Copper and Aluminum demand for grid network, at the year y
         self.model.n = Var(self.listMetals, self.listYears, initialize=0, domain=NonNegativeReals)
 
         # Declaration of the relaxation variables
@@ -951,15 +959,15 @@ class IAM_Metal_Optimisation_EV :
     def CstrNetworkSubstitution(self):
         '''
         Constraint the model to meet electric grid requirement,
-        with a potential mass substitution of aluminium to copper as 1:2
+        with a potential mass substitution of Aluminum to copper as 1:2
         '''
 
         self.model.ConstraintNetworkSubstitution = ConstraintList()
         for y in self.listYears:
             self.model.ConstraintNetworkSubstitution.add(
-                (self.model.n['Aluminium', y] * 2
+                (self.model.n['Aluminum', y] * 2
                  + self.model.n['Copper', y])*10**6
-                == self.Network_Demand.loc['Aluminium', y] * 2
+                == self.Network_Demand.loc['Aluminum', y] * 2
                 + self.Network_Demand.loc['Copper', y])
 
 
@@ -1289,7 +1297,7 @@ class IAM_Metal_Optimisation_EV :
             res_Network = pd.DataFrame(0.0, index=self.listMetals, columns=self.listYears)
             for y in self.listYears:
                 for m in self.listMetals:
-                    if m in ['Copper', 'Aluminium']:
+                    if m in ['Copper', 'Aluminum']:
                         res_Network[y].loc[m] = Network_opti_dic[m, y]*10**6
             self.res_Network = res_Network
 

@@ -62,9 +62,10 @@ class IAM_Metal_Optimisation_EV :
         self.ModelisationType = ModelisationType
         # Share of production reserved for the energy transition (energy, electric vehicles, grid, storage)
         self.Alpha = Alpha
+        self.Alpha = Alpha
 
         # Penalisation by M of the relaxation variable in the objective function
-        self.M = 10 ** 6
+        self.M = 10 ** 11
         # Folder path for results according to the modelisation type chosen
         self.Res_folder = self.result_path + self.ModelisationType
 
@@ -144,7 +145,7 @@ class IAM_Metal_Optimisation_EV :
         CF_Flex_Matrix_Init_Disag = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx', sheet_name = 'CF_Flexibility_Matrix', index_col=0)
         self.CF_Flex_Matrix_Disag = CF_Flex_Matrix_Init_Disag.sort_values(by='Techno ') # Rearrange matrix in the alphabetic order of technologies
 
-        # Import the matrix of correspondence between aggregated and disaggregated energy sources
+        # Import the matrix of correspondence between aggregated and disaggregated energy sources with flexibility
         self.Pow_Flex_Matrix = pd.read_excel(self.folder_path + 'PowerCap_MI_MS_CF.xlsx',
                                              sheet_name='Power_Flexibility_Matrix', index_col=0)
 
@@ -331,28 +332,44 @@ class IAM_Metal_Optimisation_EV :
         self.listDecadeswPast = listDecadeswPast
 
         # Stock Market Share (MS) matrix of the IAM techno and the corresponding disaggregated sub-techno
-        MarketShareInit_df = {}
+        self.MarketShare_Agg = {}
+        self.MarketShare_Disag = {}
         # Import MS data for each decade
         for d in self.listDecadeswPast:
             name_sheet = d
-            MarketShareInit_df[d] = pd.read_excel(f'{self.folder_path}Market Share in time - {self.ModelisationType}.xlsx', sheet_name=name_sheet,
+            self.MarketShare_Agg[d] = pd.read_excel(f'{self.folder_path}Market Share in time - Agg.xlsx', sheet_name=name_sheet,
                                                       index_col=0)
-        self.MarketShareInit_df = MarketShareInit_df
+            self.MarketShare_Disag[d] = pd.read_excel(f'{self.folder_path}Market Share in time - Disag.xlsx',
+                                               sheet_name=name_sheet,
+                                               index_col=0)
+
 
         # Align IAM initial techno and matrix of MS, according to the techno represented by the model_s0 studied
-        MarketShare_df = {}
+        self.MarketShare_Agg_s0 = {}
+        self.MarketShare_Disag_s0 = {}
         for y in self.listDecadeswPast: # Loop through decades studied + first previous decade
-            # Filter the rows of MarketShareInit_df based on the list of indexes from the initial IAM data
-            MarketShare_df[y] = MarketShareInit_df[y][MarketShareInit_df[y].index.isin(IAM_initial_data[self.listRegions[0]].index)]
+            # Filter the rows of MarketShares0_df based on the list of indexes from the initial IAM data
+            self.MarketShare_Agg_s0[y] = self.MarketShare_Agg[y][self.MarketShare_Agg[y].index.isin(IAM_initial_data[self.listRegions[0]].index)]
+            self.MarketShare_Disag_s0[y] = self.MarketShare_Disag[y][self.MarketShare_Disag[y].index.isin(IAM_initial_data[self.listRegions[0]].index)]
 
         # Initialise dictionary to store disaggregated IAM power capacity, for each region, techno and decade [GW]
         self.s0 = {}
+        self.s0_Agg = {}
+        self.s0_Disagg = {}
+
         for r in self.listRegions:
             # Initialize a dictionary for the current region
             self.s0[r] = pd.DataFrame()
+            self.s0_Agg[r] = pd.DataFrame()
+            self.s0_Disagg[r] = pd.DataFrame()
             for y in self.listDecadeswPast:
                 # Transpose initial IAM power cap and MS matrix of sub-techno correspondence
-                self.s0[r][y] = pd.DataFrame(MarketShare_df[y].transpose() @ IAM_initial_data[r][y])
+                self.s0_Agg[r][y] = pd.DataFrame(self.MarketShare_Agg_s0[y].transpose() @ IAM_initial_data[r][y])
+                self.s0_Disagg[r][y] = pd.DataFrame(self.MarketShare_Disag_s0[y].transpose() @ IAM_initial_data[r][y])
+                if self.ModelisationType == 'Init':
+                    self.s0[r][y] = self.s0_Disagg[r][y]
+                else:
+                    self.s0[r][y] = self.s0_Agg[r][y]
 
     def Demand_Network_Storage(self):
         '''
@@ -947,17 +964,12 @@ class IAM_Metal_Optimisation_EV :
             sum(((((sum(self.Pow_Flex_Matrix[t].loc[T] * self.model.s[r,t,d] for t in self.listEnergySources))
                    -self.s0[r].loc[T][d])/(self.s0[r].loc[T][d]+epsilon))**2)
                 for r in self.listRegions for T in self.listEnergySourcesAgg for d in self.listDecades)
-
-
             + sum((((sum(self.EV_Flex_Matrix[v].loc[V] * self.model.x[v, y] for v in self.listVehicle)
                      - self.x0.loc[V, y]) / (self.x0.loc[V, y] + epsilon)) ** 2) for V in self.listVehicleAgg for y in self.listYearsVehicle)
-
             + sum(((self.model.n[m, y]*10**6 - self.Network_Demand.loc[m, y]) / (self.Network_Demand.loc[m, y] + epsilon)) ** 2 for m in
                   self.listMetals for y in self.listYears)
-
             + sum(self.M * (self.model.Res_relax[m] / self.Reserves_Resources_Data[self.ResLimit].loc[m]) for m in self.listMetals_knownRes)
             + sum(self.M * (self.model.Mining_relax[m, d] / self.Prod[d].loc[m]) for m in self.listMetals for d in self.listDecades)
-            + sum(self.M *(self.model.CoherentMix_relax[r, t_r, d]) for r in self.listRegions for t_r in self.listEnergySources_Ren for d in self.listDecades)
             , sense=minimize)
 
     def CstrNetworkSubstitution(self):
@@ -1037,12 +1049,10 @@ class IAM_Metal_Optimisation_EV :
 
         # Creation of a list of constraint to add coherence in the optimised technological mix of 2020
         self.model.constraintMixCoherence2020 = ConstraintList()
-        # The initial technological mix of 2020 cannot be changed
+        # The initial disaggregated technological mix of 2020 cannot be changed
         for r in self.listRegions:
-            for T in self.listEnergySourcesAgg:
-                self.model.constraintMixCoherence2020.add(sum(self.Pow_Flex_Matrix[t].loc[T] *self.model.s[r,t,'2020'] for t in self.listEnergySources)
-                                                          ==self.s0[r].loc[T]['2020']
-                                                          )
+            for t in self.listEnergySources_Ren:
+                self.model.constraintMixCoherence2020.add(self.model.s[r,t,'2020']==self.s0_Disagg[r].loc[t]['2020'])
 
         # Creation of a list of constraint to add coherence in the evolution of the technological mix
         self.model.constraintMixCoherence = ConstraintList()
@@ -1050,8 +1060,19 @@ class IAM_Metal_Optimisation_EV :
         for r in self.listRegions:
             for t in self.listEnergySources_Ren:
                 for d in range(1, len(self.listDecades)):
-                    self.model.constraintMixCoherence.add(
-                        self.model.s[r, t, self.listDecades[d]] + self.model.CoherentMix_relax[r, t, self.listDecades[d]] >= self.model.s[r, t, self.listDecades[d - 1]])
+                    # Decrease in the initial scenario
+                    if (self.s0_Disagg[r].loc[t, self.listDecades[d]]<self.s0_Disagg[r].loc[t, self.listDecades[d-1]]):
+                        # Optimized scenario cannot be less than initial s0
+                        self.model.constraintMixCoherence.add(self.model.s[r, t, self.listDecades[d]]
+                                                              >= self.s0_Disagg[r].loc[t, self.listDecades[d]]
+                                                              )
+                    # Growth in the initial scenario
+                    else:
+                        # Growth in the optimized scenario
+                        self.model.constraintMixCoherence.add(self.model.s[r, t, self.listDecades[d]]
+                                                              >= self.model.s[r, t, self.listDecades[d-1]]
+                                                              )
+
 
     def CstrCappedCC(self):
         '''

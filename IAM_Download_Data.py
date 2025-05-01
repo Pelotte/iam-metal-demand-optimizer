@@ -1,5 +1,3 @@
-
-
 # Import usual libraries
 import pandas as pd
 import numpy as np
@@ -218,6 +216,3 @@ class IAM_Download_Data :
             excel = pd.ExcelWriter(excel_path)
             table.to_excel(excel, sheet_name='results')
             excel.close()
-
-
-

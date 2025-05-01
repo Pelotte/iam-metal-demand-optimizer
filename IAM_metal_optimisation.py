@@ -20,8 +20,6 @@ import pyomo as po
 # Import ipopt solver
 import cyipopt as ipopt
 
-# Choose solver
-opt = SolverFactory('ipopt', executable="C:/Users/Penel/Ipopt-3.11.1-win64-intel13.1/bin/ipopt.exe")
 
 # Choose the solver for the optimization
 opt = SolverFactory('ipopt', executable="C:/Users/Penel/Ipopt-3.11.1-win64-intel13.1/bin/ipopt.exe")
@@ -43,8 +41,8 @@ class IAM_Metal_Optimisation :
         '''
         This function aims to initialize the opti code variables and parameters.
 
-        :param folder_path: [string] path to external datas used in the code
-        :param result_path: [string] path to stock results
+        :param folder_path: [string] path to external datas used in the code, finish by /
+        :param result_path: [string] path to stock results, finish by /
         :param model_s0: [string] Integrated Assessment Model (IAM) that wants to be studied
         (AIM..CGE, GCAM4, IMAGE, MESSAGE-GLOBIOM, REMIND-MAGPIE, WITCH-GLOBIOM)
         :param scenario: [string] scenario of Shared Socioeconomic Pathway and  Representative Concentration Pathway
@@ -69,7 +67,7 @@ class IAM_Metal_Optimisation :
         # Penalisation by M of the relaxation variable in the objective function
         self.M = 10**15
         # Folder path for results according to the modelisation type chosen
-        self.Res_folder = self.result_path + '/'+ self.ModelisationType
+        self.Res_folder = self.result_path+ self.ModelisationType
 
         # Definition of the scope of this study in terms of models, scenarios, regions, decades, metals and techno
         # External excel defining the scope of the study
@@ -115,7 +113,7 @@ class IAM_Metal_Optimisation :
                 self.listTechno_Ren.append(techno)
 
         # Import general datas on metal : resources, reserves, 2020 production, recovery rates
-        self.MetalDatas = pd.read_excel(self.folder_path + 'Metal datas.xlsx', index_col=0)
+        self.MetalDatas = pd.read_excel(self.folder_path + 'Metal data.xlsx', index_col=0)
 
         # Creation of a list of metals with known ResLimit (exclusion of metal with unknown reserve or resources)
         self.listMetals_knownRes = self.listMetals.copy() # Create a copy of all the metals studied
@@ -130,18 +128,18 @@ class IAM_Metal_Optimisation :
         self.Hydro_availability = pd.read_excel(self.folder_path + 'Future techno availability.xlsx', sheet_name = 'Hydro',index_col=0)
 
         # Import CF from the literature
-        self.CF_from_litt = pd.read_excel(self.folder_path + 'Capacity Factor IAM/1_CF_from_litt.xlsx', index_col=0)
+        self.CF_from_litt = pd.read_excel(self.folder_path + 'CF_from_litt.xlsx', index_col=0)
 
         # Import matrix for corresponding CF of aggregated and disaggregated sub-technologies
-        Matrix_CF_Init_disag = pd.read_excel(self.folder_path + 'Capacity Factor IAM/0_Matrix_CF_disagg.xlsx',
+        Matrix_CF_Init_disag = pd.read_excel(self.folder_path + 'Matrix_CF_disagg.xlsx',
                                              index_col=0)
         self.Matrix_CF_disag = Matrix_CF_Init_disag.sort_values(by='Techno ') # Rearrange matrix in the alphabetic order of technologies
 
         # Import metal consumption by decade for EV, storage in [t/decade] (from IEA)
-        self.OTDdec = pd.read_excel(self.folder_path + 'Datas IEA/IEA_ByDecade_Demand_Metal.xlsx')
+        self.OTDdec = pd.read_excel(self.folder_path + 'IEA_ByDecade_Demand_Metal.xlsx')
 
         # Import metal consumption by year for EV, storage in [t/decade] (from IEA)
-        self.OTDyear = pd.read_excel(self.folder_path + 'Datas IEA/IEA_ByYear_Demand_Metal.xlsx')
+        self.OTDyear = pd.read_excel(self.folder_path + 'IEA_ByYear_Demand_Metal.xlsx')
 
         # Tab of future metal production according to different scenarios from 2020 to 2050 [t/yr]
         #self.Prod = pd.read_excel(self.folder_path + 'Future metal prod.xlsx', index_col=0)
@@ -155,9 +153,6 @@ class IAM_Metal_Optimisation :
         # Import the matrix of correspondence between Techno and Techno Init
         self.TechnoMatrix = pd.read_excel(self.folder_path + 'Techno Matrix.xlsx', index_col=0)
 
-        # Metal intensity of technologies 
-        self.MetalIntensity_doc = MetalIntensity_doc
-
     # Calculate Metal Intensity (MI) evolution in time
     def MI(self):
         '''
@@ -167,7 +162,7 @@ class IAM_Metal_Optimisation :
         '''
 
         # Import table of metal intensities for specific sub-technologies [t/GW] according to the MI scenario chosen
-        MetalIntensity = pd.read_excel(self.folder_path + 'Metal Intensity Tech.xlsx', sheet_name = 'MI base',index_col=0)
+        MetalIntensity = pd.read_excel(self.folder_path + 'Metal Intensity Tech.xlsx', sheet_name = 'MI',index_col=0)
         # Import the table of metal intensities for specific sub-technologies
         self.MetalIntensity_Agg = pd.read_excel(self.folder_path + 'Metal Intensity Tech.xlsx', sheet_name='Aggregated MI 2010',
                                            index_col=0)
@@ -178,7 +173,7 @@ class IAM_Metal_Optimisation :
         MetalIntensity_doc[self.listDecades[0]] = MetalIntensity
 
         # Tab of different scenario of metal intensity reduction
-        ReductionScenario = pd.read_excel(self.folder_path + 'Metal Intensity Tech.xlsx', sheet_name='IM reduction scenario',
+        ReductionScenario = pd.read_excel(self.folder_path + 'Metal Intensity Tech.xlsx', sheet_name='MI reduction scenario',
                                           index_col=0)
         # Load categorization of metals : bulk vs techno-specific
         MetalCategorisation = pd.read_excel(self.folder_path + 'Metal Intensity Tech.xlsx',
@@ -431,7 +426,7 @@ class IAM_Metal_Optimisation :
                     self.OTDd[d].loc[m] = 0
 
         # Importation of IEA data, in t/decade, non cumulated
-        self.OTDyear = pd.read_excel(self.folder_path + 'Datas IEA/IEA_ByYear_Demand_Metal.xlsx')
+        self.OTDyear = pd.read_excel(self.folder_path + 'IEA_ByYear_Demand_Metal.xlsx')
         # Select only the data of the scenario studied, thanks to the column scenario
         self.OTDyear = self.OTDyear[self.OTDyear["Scenario"] == scenarioIEA]
         # Drop the columns for technology and scenario, to only have the metal information
@@ -484,11 +479,11 @@ class IAM_Metal_Optimisation :
                              '2040': ProdFinalbyYear['2040'], '2050': ProdFinalbyYear['2050']})
 
         # Correction of future prod with IEA High production case projections for Cobalt, Copper, Nickel
-        Prod_IEA = pd.read_excel(self.folder_path + 'Future metal production.xlsx', sheet_name='IEA', index_col=0)
+        Prod_litt = pd.read_excel(self.folder_path + 'Future metal production.xlsx', sheet_name='Other prod estimates', index_col=0)
 
-        for m in Prod_IEA.index:
+        for m in Prod_litt.index:
             for d in self.listDecades:
-                Prod[d].loc[m] = Prod_IEA[d].loc[m]
+                Prod[d].loc[m] = Prod_litt[d].loc[m]
 
         self.Prod = Prod
 
@@ -571,7 +566,7 @@ class IAM_Metal_Optimisation :
 
         # Correction with available data for the metal m in the literature of future OSD
         for m in OSD_litt.index:
-            for d in self.listDecades:
+            for d in self.listDecades[1:]:
                 OSDy[d].loc[m] = OSD_litt[d].loc[m]
 
         OSD_litt_byScenario = pd.read_excel(self.folder_path + 'OSD litt.xlsx', sheet_name='OSD by scenario', index_col=0)
@@ -579,14 +574,14 @@ class IAM_Metal_Optimisation :
         # Correction with projections from IEA, matching scenario
         OSD_ScenarioIEA = OSD_litt_byScenario.loc[OSD_litt_byScenario['Scenario'] == self.scenarioIEA]
         for m in OSD_ScenarioIEA.index:
-            for d in self.listDecades:
+            for d in self.listDecades[1:]:
                 OSDy[d].loc[m] = OSD_ScenarioIEA[d].loc[m]
 
         # Correction with projections for different SSP, matching scenario
         OSD_ScenarioSSP = OSD_litt_byScenario.loc[
             OSD_litt_byScenario['Scenario'] == self.scenario[:4]]  # Match with the corresponding ssp
         for m in OSD_ScenarioSSP.index:
-            for d in self.listDecades:
+            for d in self.listDecades[1:]:
                 OSDy[d].loc[m] = OSD_ScenarioSSP[d].loc[m]
 
         self.OSDy = OSDy
@@ -658,7 +653,33 @@ class IAM_Metal_Optimisation :
                     >= sum(self.s0[r].loc[T][d] * self.CF_disag[r].loc[T][d] for T in self.listTechnoFlex)
                 )
 
-    def CstrCappedFoss(self):
+    def CstrTechnoCoherence(self):
+        '''
+        Constraint model to keep the initial IAM mix for 2020,
+        and to keep the installed capacity during the previous decade
+        '''
+
+        # Creation of a list of constraint to add coherence in optimised the technological mix of 2020
+        self.model.constraintMixCoherence2020 = ConstraintList()
+
+        for r in self.listRegions:
+            for T in self.listTechnoFlex:
+                # The initial technological mix of 2020 cannot be changed
+                self.model.constraintMixCoherence2020.add(sum(self.TechnoMatrix[t].loc[T] *self.model.s[r,t,'2020'] for t in self.listTechno)
+                                                          ==self.s0[r].loc[T]['2020']
+                                                          )
+
+        # Creation of a list of constraint to add coherence in the evolution of the technological mix
+        self.model.constraintMixCoherence = ConstraintList()
+
+        for r in self.listRegions:
+            for t in self.listTechno_Ren:
+                for d in range(1, len(self.listDecades)):
+                    # If a capacity is installed in d-1, it is still in the cumulated installed capacity in d
+                    self.model.constraintMixCoherence.add(
+                        self.model.s[r, t, self.listDecades[d]] + self.model.CoherentMix_relax[r, t, self.listDecades[d]] >= self.model.s[r, t, self.listDecades[d - 1]])
+
+    def CstrCappedCC(self):
         '''
         Constrain the model to not increase fossil fuel technologies, to limit climate change
         '''
@@ -667,7 +688,7 @@ class IAM_Metal_Optimisation :
         for r in self.listRegions:
             for t in self.listTechno_Foss:
                 for d in self.listDecades:
-                    self.model.constraintCC.add(self.model.s[r, t, d] - self.s0[r].loc[t][d] <= 0)
+                    self.model.constraintCC.add(self.model.s[r, t, d] - self.s0[r].loc[t][d] == 0)
 
     def CstrMetalRes(self):
         '''
@@ -709,35 +730,11 @@ class IAM_Metal_Optimisation :
                     - self.OTDy[self.listDecades[d]].loc[m] / self.MetalDatas['RR (%) Prod'].loc[
                         m]  # Metals needed for EV, electric grid, storage, according to IEA
                     - self.OSDy[self.listDecades[d]].loc[m], self.Alpha / 100 * (
-                                self.OSDy[self.listDecades[d]].loc[m] + self.OTDy[self.listDecades[d]].loc[m]))
+                                self.OSDy[self.listDecades[d]].loc[m]/ self.MetalDatas['RR (%) Prod'].loc[
+                        m] + self.OTDy[self.listDecades[d]].loc[m]))
                                                        + self.model.Mining_relax[
                                                            m, self.listDecades[d]])  # Relaxation variable
 
-    def CstrTechnoCoherence(self):
-        '''
-        Constraint model to keep the initial IAM mix for 2020,
-        and to keep the installed capacity during the previous decade
-        '''
-
-        # Creation of a list of constraint to add coherence in optimised the technological mix of 2020
-        self.model.constraintMixCoherence2020 = ConstraintList()
-
-        for r in self.listRegions:
-            for T in self.listTechnoFlex:
-                # The initial technological mix of 2020 cannot be changed
-                self.model.constraintMixCoherence2020.add(sum(self.TechnoMatrix[t].loc[T] *self.model.s[r,t,'2020'] for t in self.listTechno)
-                                                          ==self.s0[r].loc[T]['2020']
-                                                          )
-
-        # Creation of a list of constraint to add coherence in the evolution of the technological mix
-        self.model.constraintMixCoherence = ConstraintList()
-
-        for r in self.listRegions:
-            for t in self.listTechno_Ren:
-                for d in range(1, len(self.listDecades)):
-                    # If a capacity is installed in d-1, it is still in the cumulated installed capacity in d
-                    self.model.constraintMixCoherence.add(
-                        self.model.s[r, t, self.listDecades[d]] + self.model.CoherentMix_relax[r, t, self.listDecades[d]] >= self.model.s[r, t, self.listDecades[d - 1]])
 
     def CstrBiomassAvail(self):
         '''
@@ -872,7 +869,7 @@ class IAM_Metal_Optimisation :
 
         # Create a dF with metals needed for the energy sources
         EnergySectorDemandy = pd.DataFrame(0.0, index=self.listMetals, columns=self.listDecades)
-        EnergySectorDemandy['2020'] = self.PowerMetalDemand_y['2020']
+        EnergySectorDemandy['2020'] = self.PowerMetalDemand_y['2020'] / self.MetalDatas['RR (%) Prod'].loc[m]
         # Loop through decades and metals
         for d in range(1, len(self.listDecades)):
             for m in self.listMetals:
@@ -953,7 +950,7 @@ class IAM_Metal_Optimisation :
         Save estimated production by year
         '''
 
-        Res_Folder_BroaderEconomy = self.result_path+ '/BroaderEconomy'
+        Res_Folder_BroaderEconomy = self.result_path+ 'BroaderEconomy'
         if not os.path.exists(Res_Folder_BroaderEconomy):
             os.makedirs(Res_Folder_BroaderEconomy)
 
@@ -1009,7 +1006,7 @@ class IAM_Metal_Optimisation :
         It would then suppose a requirement of effort from society to decrease consumption
         '''
 
-        ConstraintDemandByYear_file = self.result_path + '/BroaderEconomy/EffortBySociety' + '_' + self.model_s0 + '_' + self.scenario + '.xlsx'
+        ConstraintDemandByYear_file = self.result_path + 'BroaderEconomy/EffortBySociety' + '_' + self.model_s0 + '_' + self.scenario + '.xlsx'
 
         if not os.path.exists(ConstraintDemandByYear_file):
 
@@ -1038,4 +1035,3 @@ class IAM_Metal_Optimisation :
             excel = pd.ExcelWriter(ConstraintDemandByYear_file)
             Styled_ConstraintDemandByYear.to_excel(excel)
             excel.close()
-

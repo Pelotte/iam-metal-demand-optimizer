@@ -65,7 +65,7 @@ class IAM_Metal_Optimisation_EV :
         self.Alpha = Alpha
 
         # Penalisation by M of the relaxation variable in the objective function
-        self.M = 10 ** 11
+        self.M = 10 ** 15
         # Folder path for results according to the modelisation type chosen
         self.Res_folder = self.result_path + self.ModelisationType
 
@@ -537,19 +537,16 @@ class IAM_Metal_Optimisation_EV :
         for y in range(1, len(self.listYearsTot)):
             for vT in self.listVehicleType:
                 # Take the maximum value between the variation in stock by vehicle type and 0
-                VehicleType_Growth.loc[vT, self.listYearsTot[y]] = max(0,
-                                                                       (self.LDV_Stock[self.listYearsTot[y]]
-                                                                       * self.MS_Vehicle_Type.loc[
-                                                                           (self.MS_Vehicle_Type["vehicle_type"] == vT)
-                                                                           & (self.MS_Vehicle_Type["year"] ==
-                                                                              self.listYearsTot[y]), "value"].values[0])
-                                                                       - (self.LDV_Stock[self.listYearsTot[y - 1]] *
-                                                                          self.MS_Vehicle_Type.loc[
-                                                                              (self.MS_Vehicle_Type[
-                                                                                   "vehicle_type"] == vT) & (
-                                                                                      self.MS_Vehicle_Type["year"] ==
-                                                                                      self.listYearsTot[
-                                                                                          y - 1]), "value"].values[0]))
+                VehicleType_Growth.loc[vT, self.listYearsTot[y]] = max(
+                    0,
+                    (self.LDV_Stock[self.listYearsTot[y]] - self.LDV_Stock[self.listYearsTot[y - 1]])
+                    * self.MS_Vehicle_Type.loc[
+                        (self.MS_Vehicle_Type["vehicle_type"] == vT) &
+                        (self.MS_Vehicle_Type["year"] == self.listYearsTot[y]),
+                        "value"
+                    ].values[0]
+                )
+
         self.VehicleType_Growth = VehicleType_Growth
 
         # New installation of vehicles to maintain the stock
@@ -964,8 +961,8 @@ class IAM_Metal_Optimisation_EV :
             sum(((((sum(self.Pow_Flex_Matrix[t].loc[T] * self.model.s[r,t,d] for t in self.listEnergySources))
                    -self.s0[r].loc[T][d])/(self.s0[r].loc[T][d]+epsilon))**2)
                 for r in self.listRegions for T in self.listEnergySourcesAgg for d in self.listDecades)
-            + sum((((sum(self.EV_Flex_Matrix[v].loc[V] * self.model.x[v, y] for v in self.listVehicle)
-                     - self.x0.loc[V, y]) / (self.x0.loc[V, y] + epsilon)) ** 2) for V in self.listVehicleAgg for y in self.listYearsVehicle)
+            + sum((((sum(10**6*self.EV_Flex_Matrix[v].loc[V] * self.model.x[v, y] for v in self.listVehicle)
+                     - 10**6*self.x0.loc[V, y]) / (10**6*self.x0.loc[V, y] + epsilon)) ** 2) for V in self.listVehicleAgg for y in self.listYearsVehicle)
             + sum(((self.model.n[m, y]*10**6 - self.Network_Demand.loc[m, y]) / (self.Network_Demand.loc[m, y] + epsilon)) ** 2 for m in
                   self.listMetals for y in self.listYears)
             + sum(self.M * (self.model.Res_relax[m] / self.Reserves_Resources_Data[self.ResLimit].loc[m]) for m in self.listMetals_knownRes)
@@ -1002,7 +999,7 @@ class IAM_Metal_Optimisation_EV :
                 self.model.ConstraintEnergyDemand.add(
                     sum(sum(self.Pow_Flex_Matrix[t].loc[T] * self.model.s[r, t, d] for t in self.listEnergySources)
                         * self.CF[r].loc[T][d] for T in self.listEnergySourcesAgg)
-                    >= sum(self.s0[r].loc[T][d] * self.CF[r].loc[T][d] for T in self.listEnergySourcesAgg)
+                    == sum(self.s0[r].loc[T][d] * self.CF[r].loc[T][d] for T in self.listEnergySourcesAgg)
                 )
 
     def CstrVehicleDemand(self):

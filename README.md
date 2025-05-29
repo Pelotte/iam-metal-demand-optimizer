@@ -1,33 +1,33 @@
 ## IAM_metal_optimisation 
 
-The python code "IAM_metal_optimisation.py" is a software tool designed, on one hand, to quantify metal supply and demand by sector through 2050, based on energy projections from various IAMs and SSP-RCP scenarios. On the other hand, this code enables the optimization of the minimum variation in the IAM technological mix necessary to limit demand exceedance beyond metal supply constraints.
+The python code "IAM_Techno_Optimisation.py" is a software tool designed, on one hand, to quantify metal supply and demand by sector through 2050, based on energy projections from various IAMs and SSP-RCP scenarios. On the other hand, this code enables the optimization of the minimum variation in the IAM technological mix necessary to limit demand exceedance beyond metal supply constraints.
 
 ### How to use the code ? 
 
 1. Clone the repository (or download it)
-2. Remove the contents from the 'Datas' folder, so that it is in your "folder path" (see the parameters section)
-3. Download the datas of the IAM you want to use in your "folder path" (see the parameters section)
+2. Download the contents from the 'data' folder in the location of your "folder path" (see the parameters section)
+3. Download the data of the IAM you want to use in your "folder path" (see the parameters section)
 4. The code is ready to be used !
 
-### How to download datas of the IAM you want
+### How to download data of the IAM you want
 
 1. You want to study the modelisation from the article
    
-The datas needed to generate the results of RCP 2.6, for various SSP, modeled by each IAM markor is available on Zenodo at the following link: 
-        — Data: data-zenodo
+The data needed to generate the results of RCP 2.6, for various SSP, modeled by each IAM markor is available on Zenodo at the following link: 
+        — Data: 10.5281/zenodo.15319014
 
 2. You want to study an other IAM or SSP-RCP scenario
 
-To study an other IAM and SSP-RCP modelisation, use the datas from the IIASA database : https://tntcat.iiasa.ac.at/SspDb/dsd?Action=htmlpage&page=20
+To study an other IAM and SSP-RCP modelisation, use the data from the IIASA database : https://tntcat.iiasa.ac.at/SspDb/dsd?Action=htmlpage&page=20
 
-After logging in, go to the "IAM Scenarios" section, and download datas for : 
+After logging in, go to the "IAM Scenarios" section, and download data for : 
 - Regions : choose 5 regions
 - Model/Scenarios : choose the scenarios you want to study
-- Variable : At least, the GDP, the Secondary Energy (in Energy folder) and the Power Capacity (in Technological                 Indicators Folder > Capacity > Electricity)
-The datas are stocked in a csv file for every IAM, every SSP-RCP scenario, every region, for each variable chosen.
+- Variable : At least, the GDP, the Secondary Energy (in Energy folder) and the Power Capacity                 Indicators Folder > Capacity > Electricity)
+The data are stocked in a csv file for every IAM, every SSP-RCP scenario, every region, for each variable chosen.
 
-To use the data in the code, they have to be downloaded in a folder for each variable. The folder contains a folder for each modelisation (IAM - SSP-RCP), which is filled with 5 Excel files for each region. 
-The folder and files name are :
+To use the data in the code, they have to be downloaded in a folder for each variable. The folder contains a folder for each modelisation (IAM - SSP-RCP), which is filled with 5 Excel files for each region.
+The folder and files name are:
 - Capacity Factor IAM > FC models0_scenario > FCmodels0_scenario_region
 - GDP IAM > GDP models0_scenario > GDPmodels0_scenario_region
 - Power Capacity IAM > Dossier s0 models0_scenario > Cap_models0_scenario_region
@@ -46,4 +46,4 @@ The software tool is structured as a class, divided into several methods. To ini
 - OTD for the annual metal production optimization constraint
 - ResLimit: [string] limit to apply when optimizing cumulative metal demand, choosing between Reserves or Resources
 
-  All the other methods do not require any parameters. 
+  All the other methods do not require any parameters.

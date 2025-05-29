@@ -20,7 +20,7 @@ from pyomo.environ import *
 
 opt = SolverFactory('cplex')
 
-class IAM_Metal_Optimisation_EV :
+class IAM_Techno_Optimisation :
     '''
     Init folder :
     If the Modelisation Type is Init, this code calculates the cumulated and annual demand of 29 metals
@@ -61,7 +61,6 @@ class IAM_Metal_Optimisation_EV :
         # or with an optimisation of market shares to minimize metal constraints ("Opti")
         self.ModelisationType = ModelisationType
         # Share of production reserved for the energy transition (energy, electric vehicles, grid, storage)
-        self.Alpha = Alpha
         self.Alpha = Alpha
 
         # Penalisation by M of the relaxation variable in the objective function

@@ -945,8 +945,6 @@ class IAM_Techno_Optimisation :
         self.model.Res_relax = Var(self.listMetals_knownRes, initialize=0, within=NonNegativeReals)
         # Potential requirement for additional mining production of metal m at the decade d
         self.model.Mining_relax = Var(self.listMetals, self.listDecades, initialize=0, within=NonNegativeReals)
-        # In case the initial techno mix has a decrease for some technoRen
-        self.model.CoherentMix_relax = Var(self.listRegions, self.listEnergySources_Ren, self.listDecades, initialize=0, within=NonNegativeReals)
 
     def modelObj(self):
         '''
@@ -968,21 +966,6 @@ class IAM_Techno_Optimisation :
             + sum(self.M * (self.model.Mining_relax[m, d] / self.Prod[d].loc[m]) for m in self.listMetals for d in self.listDecades)
             , sense=minimize)
 
-    def CstrNetworkSubstitution(self):
-        '''
-        Constraint the model to meet electric grid requirement,
-        with a potential mass substitution of Aluminum to copper as 1:2
-        '''
-
-        self.model.ConstraintNetworkSubstitution = ConstraintList()
-        for y in self.listYears:
-            self.model.ConstraintNetworkSubstitution.add(
-                (self.model.n['Aluminum', y] * 2
-                 + self.model.n['Copper', y])*10**6
-                == self.Network_Demand.loc['Aluminum', y] * 2
-                + self.Network_Demand.loc['Copper', y])
-
-
     def CstrEnergyDemand(self):
         '''
         Constraint the model to meet the energy demand of the IAM scenario,
@@ -1001,31 +984,53 @@ class IAM_Techno_Optimisation :
                     == sum(self.s0[r].loc[T][d] * self.CF[r].loc[T][d] for T in self.listEnergySourcesAgg)
                 )
 
-    def CstrVehicleDemand(self):
+    def CstrCappedCC(self):
         '''
-           Constraint the model to meet the predicted vehicle demand, for every year
+        Constrain the model to not increase fossil fuel technologies to limit climate change
         '''
 
-        self.model.ConstraintVehicleGrowth = ConstraintList()
-        for y in self.listYearsTot[1:]:
-            for vT in self.listVehicleType:
-                self.model.ConstraintVehicleGrowth.add(self.model.x_growth[vT, y] == self.VehicleType_Growth.loc[vT, y])
+        self.model.constraintCC = ConstraintList()
 
-        self.model.ConstraintVehicleMaintain = ConstraintList()
-        # from 2018 to 2050
-        for y in range(1 + self.Lifetime_V, len(self.listYearsTot)):
-            for vT in self.listVehicleType:
-                self.model.ConstraintVehicleMaintain.add(self.model.x_maintain[vT, self.listYearsTot[y]]
-                                                         == self.model.x_growth[vT, self.listYearsTot[y - self.Lifetime_V]])
+        for r in self.listRegions:
+            for t in self.listEnergySources_Foss:
+                for d in self.listDecades:
+                    self.model.constraintCC.add(self.model.s[r, t, d] - self.s0[r].loc[t][d] == 0)
 
-        self.model.ConstraintVehicleSold = ConstraintList()
-        for y in range(0, len(self.listYearsVehicle)):
-            for vT in self.listVehicleType:
-                self.model.ConstraintVehicleSold.add(
-                    sum(self.model.x[v, self.listYearsVehicle[y]] for v in self.listVehicle if v.startswith(vT))
-                    == self.model.x_growth[vT, self.listYearsVehicle[y]]
-                    + self.model.x_maintain[vT, self.listYearsVehicle[y]]
-                    )
+    def CstrBiomassAvail(self):
+        '''
+        Constraint the model to limit biomass power capacity under
+        a potential of future biomass availability
+        '''
+
+        self.model.Constraint_Biomass = ConstraintList()
+
+        for d in self.listDecades:
+            self.model.Constraint_Biomass.add(
+                sum(self.model.s[r, 'Biomass', d] for r in self.listRegions)
+                <= self.Biomass_availability.loc['Business as usual'][d]
+            )
+
+    def CstrHydroAvail(self):
+        '''
+        Constraint the model to limit hydraulic power capacity under
+        a potential of future hydraulic availability by region
+        '''
+
+        self.model.Constraint_Hydro = ConstraintList()
+
+        for r in self.listRegions[:3]:  # Remaining hydro availability for ASIA, MAF and LAM
+            self.model.Constraint_Hydro.add(
+                self.model.s[r, 'Hydro', '2050'] - self.model.s[r, 'Hydro', '2020'] <= self.Hydro_availability[r].loc[
+                    'Technical -Ecological']
+            )
+
+        # Remaining hydro availability for combined Europe and North-Central America
+        self.model.Constraint_Hydro.add(
+                sum(self.model.s[r, 'Hydro', '2050'] - self.model.s[r, 'Hydro', '2020'] for r in self.listRegions[3:])
+                <= self.Hydro_availability['Europe'].loc['Technical -Ecological'] +
+                self.Hydro_availability['North America'].loc[
+                    'Technical -Ecological']
+            )
 
     def CstrTechnoCoherence(self):
         '''
@@ -1069,18 +1074,60 @@ class IAM_Techno_Optimisation :
                                                               >= self.model.s[r, t, self.listDecades[d-1]]
                                                               )
 
-
-    def CstrCappedCC(self):
+    def CstrVehicleDemand(self):
         '''
-        Constrain the model to not increase fossil fuel technologies to limit climate change
+           Constraint the model to meet the predicted vehicle demand, for every year
         '''
 
-        self.model.constraintCC = ConstraintList()
+        self.model.ConstraintVehicleGrowth = ConstraintList()
+        for y in self.listYearsTot[1:]:
+            for vT in self.listVehicleType:
+                self.model.ConstraintVehicleGrowth.add(self.model.x_growth[vT, y] == self.VehicleType_Growth.loc[vT, y])
 
-        for r in self.listRegions:
-            for t in self.listEnergySources_Foss:
-                for d in self.listDecades:
-                    self.model.constraintCC.add(self.model.s[r, t, d] - self.s0[r].loc[t][d] == 0)
+        self.model.ConstraintVehicleMaintain = ConstraintList()
+        # from 2018 to 2050
+        for y in range(1 + self.Lifetime_V, len(self.listYearsTot)):
+            for vT in self.listVehicleType:
+                self.model.ConstraintVehicleMaintain.add(self.model.x_maintain[vT, self.listYearsTot[y]]
+                                                         == self.model.x_growth[vT, self.listYearsTot[y - self.Lifetime_V]])
+
+        self.model.ConstraintVehicleSold = ConstraintList()
+        for y in range(0, len(self.listYearsVehicle)):
+            for vT in self.listVehicleType:
+                self.model.ConstraintVehicleSold.add(
+                    sum(self.model.x[v, self.listYearsVehicle[y]] for v in self.listVehicle if v.startswith(vT))
+                    == self.model.x_growth[vT, self.listYearsVehicle[y]]
+                    + self.model.x_maintain[vT, self.listYearsVehicle[y]]
+                    )
+
+    def CstrNewTechnoEV(self):
+
+        '''
+        Constraint to model the limit of the penetration of the new sodium-ion battery
+        Supposition of a price advantage for Na-ion battery from 2035
+        '''
+
+        self.model.Constraint_NewTechnoEV = ConstraintList()
+        # Before 2035, cannot add more than 10% of Na-ion already presumed
+        for y in self.listYearsVehicle[:23]:
+            self.model.Constraint_NewTechnoEV.add(sum(
+                sum(self.EV_Flex_Matrix[v].loc[V] * self.model.x[v, y] for v in self.listVehicle)
+                for V in self.listVehicleAgg if "Na-ion" in V)
+                <= 1.1 * sum(self.x0.loc[V, y] for V in self.listVehicleAgg if "Na-ion" in V))
+
+    def CstrNetworkSubstitution(self):
+        '''
+        Constraint the model to meet electric grid requirement,
+        with a potential mass substitution of Aluminum to copper as 1:2
+        '''
+
+        self.model.ConstraintNetworkSubstitution = ConstraintList()
+        for y in self.listYears:
+            self.model.ConstraintNetworkSubstitution.add(
+                (self.model.n['Aluminum', y] * 2
+                 + self.model.n['Copper', y])*10**6
+                == self.Network_Demand.loc['Aluminum', y] * 2
+                + self.Network_Demand.loc['Copper', y])
 
     def CstrMetal_Res(self):
         '''
@@ -1089,9 +1136,9 @@ class IAM_Techno_Optimisation :
         self.model.constraint_DemandCumulated = ConstraintList()
 
         for m in self.listMetals_knownRes:
-            self.model.constraint_DemandCumulated.add(sum((self.model.s[r,t,self.listDecades[d]]-self.model.s[r,t,self.listDecades[d-1]])
+            self.model.constraint_DemandCumulated.add(sum(self.model.s[r,t,'2050']-self.model.s[r,t,'2020']
                                       *self.MetalIntensity[t].loc[m]
-                                      /self.Recovery_Rates['RR_Reserve'].loc[m] for t in self.listEnergySources_Ren for r in self.listRegions for d in range(1, len(self.listDecades)))
+                                      /self.Recovery_Rates['RR_Reserve'].loc[m] for t in self.listEnergySources_Ren for r in self.listRegions)
                                                   # Metal demand to create the vehicle stock with recycling between 2020 and 2030
                                                   + sum(
             sum(self.model.x[v, self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m][v] for v in self.listVehicle)
@@ -1186,56 +1233,6 @@ class IAM_Techno_Optimisation :
                     demand_renewable + demand_network_storage + demand_vehicle
                     <= production_capacity + self.model.Mining_relax[m, self.listDecades[d]]
                 )
-
-    def CstrNewTechnoEV(self):
-
-        '''
-        Constraint to model the limit of the penetration of the new sodium-ion battery
-        Supposition of a price advantage for Na-ion battery from 2035
-        '''
-
-        self.model.Constraint_NewTechnoEV = ConstraintList()
-        # Before 2035, cannot add more than 10% of Na-ion already presumed
-        for y in self.listYearsVehicle[:23]:
-            self.model.Constraint_NewTechnoEV.add(sum(
-                sum(self.EV_Flex_Matrix[v].loc[V] * self.model.x[v, y] for v in self.listVehicle)
-                for V in self.listVehicleAgg if "Na-ion" in V)
-                <= 1.1 * sum(self.x0.loc[V, y] for V in self.listVehicleAgg if "Na-ion" in V))
-
-    def CstrBiomassAvail(self):
-        '''
-        Constraint the model to limit biomass power capacity under
-        a potential of future biomass availability
-        '''
-
-        self.model.Constraint_Biomass = ConstraintList()
-
-        for d in self.listDecades:
-            self.model.Constraint_Biomass.add(
-                sum(self.model.s[r, 'Biomass', d] for r in self.listRegions)
-                <= self.Biomass_availability.loc['Business as usual'][d]
-            )
-
-    def CstrHydroAvail(self):
-        '''
-        Constraint the model to limit hydraulic power capacity under
-        a potential of future hydraulic availability by region
-        '''
-
-        self.model.Constraint_Hydro = ConstraintList()
-
-        for r in self.listRegions[:3]:  # Remaining hydro availability for ASIA, MAF and LAM
-            self.model.Constraint_Hydro.add(
-                self.model.s[r, 'Hydro', '2050'] - self.model.s[r, 'Hydro', '2020'] <= self.Hydro_availability[r].loc[
-                    'Technical -Ecological']
-            )
-
-        # Remaining hydro availability for combined Europe and North-Central America
-        self.model.Constraint_Hydro.add(
-            sum(self.model.s[r, 'Hydro', '2050'] - self.model.s[r, 'Hydro', '2020'] for r in self.listRegions[3:])
-            <= self.Hydro_availability['Europe'].loc['Technical -Ecological'] + self.Hydro_availability['North America'].loc[
-                'Technical -Ecological']
-        )
 
     def resOpti(self):
         '''

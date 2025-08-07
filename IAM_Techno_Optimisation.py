@@ -1136,6 +1136,39 @@ class IAM_Techno_Optimisation :
         self.model.constraint_DemandCumulated = ConstraintList()
 
         for m in self.listMetals_knownRes:
+            self.model.constraint_DemandCumulated.add(sum((self.model.s[r,t,self.listDecades[d]]-self.model.s[r,t,self.listDecades[d-1]])
+                                      *self.MetalIntensity[t].loc[m]
+                                      /self.Recovery_Rates['RR_Reserve'].loc[m] for t in self.listEnergySources_Ren for r in self.listRegions for d in range(1, len(self.listDecades)))
+                                                  # Metal demand to create the vehicle stock with recycling between 2020 and 2030
+                                                  + sum(
+            sum(self.model.x[v, self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m][v] for v in self.listVehicle)
+            - self.model.x_growth['ICEV', self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]] * self.MI_Vehicle.loc[m]['ICEV'] for y in
+            range(2, 12))/self.Recovery_Rates['RR_Reserve'].loc[m]
+                                                  # Metal demand to create the vehicle stock with recycling between 2030 and 2050
+                                                  + sum(
+            (self.model.x[v, self.listYearsVehicle[y]] - self.model.x[v, self.listYearsTot[y + 1]] * self.Recycling_Rate.loc[m,self.listYearsVehicle[y]]) * self.MI_Vehicle.loc[m][v] /
+            self.Recovery_Rates['RR_Reserve'].loc[m] for v in self.listVehicle for y in range(12, len(self.listYearsVehicle)))
+
+                                                  + sum(self.Storage_Demand.loc[m][y] / self.Recovery_Rates['RR_Reserve'].loc[m]
+                                                        for y in self.listYears)
+                                                  # Metal demand cumulated for network grid
+                                                  + sum(
+            self.model.n[m, y]*10**6 / self.Recovery_Rates['RR_Reserve'].loc[m] for y in self.listYears)
+                                                  + sum(
+            (self.OSD[self.listDecades[d]].loc[m] + self.OSD[self.listDecades[d - 1]].loc[m]) * 10 / 2 for d in
+            range(1, len(self.listDecades)))
+                                                  - self.model.Res_relax[m]
+                                                  <= self.Reserves_Resources_Data[self.ResLimit].loc[m])
+
+    '''
+
+    def CstrMetal_Res(self):
+        
+        Constrain the model to limit cumulated metal demand in 2050 under the ResLimit restriction
+        
+        self.model.constraint_DemandCumulated = ConstraintList()
+
+        for m in self.listMetals_knownRes:
             self.model.constraint_DemandCumulated.add(sum(self.model.s[r,t,'2050']-self.model.s[r,t,'2020']
                                       *self.MetalIntensity[t].loc[m]
                                       /self.Recovery_Rates['RR_Reserve'].loc[m] for t in self.listEnergySources_Ren for r in self.listRegions)
@@ -1159,6 +1192,8 @@ class IAM_Techno_Optimisation :
             range(1, len(self.listDecades)))
                                                   - self.model.Res_relax[m]
                                                   <= self.Reserves_Resources_Data[self.ResLimit].loc[m])
+                                                  
+    '''
 
     def CstrMetal_Mining(self):
         '''

@@ -450,8 +450,8 @@ class IAM_Techno_Optimisation :
 
         # Initialize DataFrame for final mining production with metals as index and years as columns
         Prod = pd.DataFrame(index=self.listMetals, columns=self.listYears, dtype=float)
-        # Fill 2020 data with actual known metal production
-        Prod["2020"] = self.Prod_2020
+        # Fill 2020 data with actual known metal refinery production
+        Prod["2020"] = self.Prod_2020*self.Recovery_Rates['RR_Prod']
 
         # 1. Prod estimates based on the median production growth of historical data "Beta"
 
@@ -830,9 +830,10 @@ class IAM_Techno_Optimisation :
         # Initialise the data from 2020 with actual known metal prod in 2020 - metal demand for the transition [t/y]
         for m in self.listMetals:
             # Total prod in 2020 - Metal for grid and storage - Metal for powCap installation in 2020 - Metal for EV
-            InitialOSD = ((self.Prod['2020'].loc[m] - (self.Storage_Demand['2020'].loc[m]+self.Network_Demand['2020'].loc[m]) / self.Recovery_Rates['RR_Prod'].loc[m]
-                          - self.PowerMetalDemand_y['2020'].loc[m] / self.Recovery_Rates['RR_Prod'].loc[m])
-                          - sum(self.x0.loc[v, '2020'] * self.MI_VehicleAgg.loc[m][v] / self.Recovery_Rates['RR_Prod'].loc[m] for v in self.listVehicleAgg))
+            InitialOSD = (self.Prod['2020'].loc[m] - self.Storage_Demand['2020'].loc[m]
+                          - self.Network_Demand['2020'].loc[m]
+                          - self.PowerMetalDemand_y['2020'].loc[m]
+                          - sum(self.x0.loc[v, '2020'] * self.MI_VehicleAgg.loc[m][v] for v in self.listVehicleAgg))
             # Change OSD value only if it is above 0, if not : = 0.
 
             if InitialOSD > 0:
@@ -1205,15 +1206,15 @@ class IAM_Techno_Optimisation :
         def renewable_demand(m, d):
             return sum(self.MetalIntensity[t].loc[m]
                 * (self.model.s[r, t, self.listDecades[d]] - self.model.s[r, t, self.listDecades[d - 1]])
-                / (self.Recovery_Rates['RR_Prod'].loc[m]*10)
+                / 10
                 for t in self.listEnergySources_Ren for r in self.listRegions
                     )
 
         def network_storage_demand(m, d):
             return (sum(
                 self.model.n[m, self.listYearsTot[5 + i + 10 * d]]*10**6 for i in self.list_i)
-                    / (self.Recovery_Rates['RR_Prod'].loc[m] * 10)
-                    + self.Storage_Demand[self.listDecades[d]].loc[m] / self.Recovery_Rates['RR_Prod'].loc[m])
+                    / 10
+                    + self.Storage_Demand[self.listDecades[d]].loc[m])
 
         def vehicle_demand(m, d):
             if d == 1:
@@ -1226,7 +1227,6 @@ class IAM_Techno_Optimisation :
                         - self.model.x_growth['ICEV', self.listYearsTot[5 + i + 10 * d - self.Lifetime_V]]
                         * self.MI_Vehicle.loc[m, 'ICEV'] * self.Recycling_Rate.loc[m,self.listYearsTot[5 + i + 10 * d]]
                     )
-                    / self.Recovery_Rates['RR_Prod'].loc[m]
                     for i in self.list_i
                 ) / 10
             else:
@@ -1240,7 +1240,6 @@ class IAM_Techno_Optimisation :
                             / 10
                     )
                     * self.MI_Vehicle.loc[m][v]
-                    / self.Recovery_Rates['RR_Prod'].loc[m]
                     for v in self.listVehicle
                 )
 
@@ -1418,9 +1417,9 @@ class IAM_Techno_Optimisation :
         EVSectorDemand = pd.DataFrame(0.0, index=self.listMetals, columns=self.listDecades)
 
         # Add initial data for 2020
-        EnergySectorDemandy['2020'] = self.PowerMetalDemand_y['2020']/self.Recovery_Rates['RR_Prod']
-        NetworkDemandy['2020'] = self.Network_Demand['2020']/self.Recovery_Rates['RR_Prod']
-        EVSectorDemand['2020'] = sum(self.x0.loc[v, '2020'] * self.MI_VehicleAgg[v]/self.Recovery_Rates['RR_Prod'] for v in self.listVehicleAgg)
+        EnergySectorDemandy['2020'] = self.PowerMetalDemand_y['2020']
+        NetworkDemandy['2020'] = self.Network_Demand['2020']
+        EVSectorDemand['2020'] = sum(self.x0.loc[v, '2020'] * self.MI_VehicleAgg[v] for v in self.listVehicleAgg)
 
         # Add data for next years
         for m in self.listMetals:
@@ -1428,16 +1427,16 @@ class IAM_Techno_Optimisation :
                 # Add metals need for new installed capacity between the actual decade and the previous one
                 EnergySectorDemandy[self.listDecades[d]].loc[m] = max(0,sum(
                     self.MetalIntensity[t].loc[m]
-                    * newCapacityD[r][self.listDecades[d]].loc[t] /(self.Recovery_Rates['RR_Prod'].loc[m]*10)
+                    * newCapacityD[r][self.listDecades[d]].loc[t] /10
                     for t in self.listEnergySources_Ren for r in self.listRegions))
 
                 NetworkDemandy[self.listDecades[d]].loc[m] = sum(
-                    self.res_Network.loc[m][self.listYearsTot[5 + i + 10 * d]] for i in self.list_i)/(self.Recovery_Rates['RR_Prod'].loc[m]*10)
+                    self.res_Network.loc[m][self.listYearsTot[5 + i + 10 * d]] for i in self.list_i)/10
 
                 EVSectorDemand[self.listDecades[d]].loc[m] = sum(
                     self.res_EV.loc[v, self.listYearsTot[5 + i + 10 * d]] * self.MI_Vehicle.loc[m, v]
                     for v in self.listVehicle for i in self.list_i
-                    )/(10*self.Recovery_Rates['RR_Prod'].loc[m])
+                    )/10
         self.EVSectorDemand = EVSectorDemand
 
         # Create a three dimensions dataFrame to add all data of consumption by decade
@@ -1451,7 +1450,7 @@ class IAM_Techno_Optimisation :
                 DemandByYear_df[m].loc['Energy Sector Demand'] = EnergySectorDemandy.loc[m]
                 DemandByYear_df[m].loc['Other Sector Demand'] = self.OSD.loc[m]
                 DemandByYear_df[m].loc['Network Demand'] = NetworkDemandy.loc[m]
-                DemandByYear_df[m].loc['Storage Demand'] = self.Storage_Demand.loc[m] / self.Recovery_Rates['RR_Prod'].loc[m]
+                DemandByYear_df[m].loc['Storage Demand'] = self.Storage_Demand.loc[m]
                 DemandByYear_df[m].loc['EV Sector Demand'] = self.EVSectorDemand.loc[m]
         self.DemandByYear_df = DemandByYear_df
 
@@ -1465,11 +1464,11 @@ class IAM_Techno_Optimisation :
                         self.VehicleType_Growth.loc['ICEV', self.listYearsTot[5 + i + 10 * d - self.Lifetime_V]]
                         * self.Recycling_Rate.loc[m,self.listYearsTot[5 + i + 10 * d]] for i in self.list_i)
                                                                       * self.MI_Vehicle.loc[m]['ICEV']
-                                                                     /(10*self.Recovery_Rates['RR_Prod'].loc[m]))
+                                                                     /10)
                 elif d>1:
                     Secondary_Prod_df.loc[m, self.listDecades[d]] = (sum(self.res_EV.loc[v, self.listYearsTot[5 + i + 10 * d - self.Lifetime_V]]
                                 * self.MI_Vehicle.loc[m, v] * self.Recycling_Rate.loc[m,self.listYearsTot[5 + i + 10 * d]] for v in self.listVehicle for i in self.list_i)
-                                                                     /(10 * self.Recovery_Rates['RR_Prod'].loc[m]))
+                                                                     /10)
 
         self.Secondary_Prod_df = Secondary_Prod_df
 
@@ -1583,7 +1582,7 @@ class IAM_Techno_Optimisation :
             for m in self.listMetals:
                 for d in self.listDecades[1:]:
                     # If total metal demand is under the estimated production
-                    if (self.Prod[d].loc[m] - self.Storage_Demand[d].loc[m] / self.Recovery_Rates['RR_Prod'].loc[m] - self.OSD[d].loc[m]) >= (
+                    if (self.Prod[d].loc[m] - self.Storage_Demand[d].loc[m]  - self.OSD[d].loc[m]) >= (
                             self.Alpha / 100 * self.OSD[d].loc[m]):
                         ConstraintDemandByYear[d].loc[m] = 'Prod'
                     # If there is a need for an effort from society

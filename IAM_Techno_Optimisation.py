@@ -450,10 +450,10 @@ class IAM_Techno_Optimisation :
 
         # Initialize DataFrame for final mining production with metals as index and years as columns
         Prod = pd.DataFrame(index=self.listMetals, columns=self.listYears, dtype=float)
-        # Fill 2020 data with actual known metal refinery production
-        Prod["2020"] = self.Prod_2020*self.Recovery_Rates['RR_Prod']
+        # Fill 2020 data with actual known metal mining production
+        Prod["2020"] = self.Prod_2020
 
-        # 1. Prod estimates based on the median production growth of historical data "Beta"
+        # 1. Mining production estimates based on the median production growth of historical data "Beta"
 
         # Load the historical annual growth rate (Beta) per metal [%]
         Beta = pd.read_excel(self.folder_path + 'Prod&Demand_Other_Sectors.xlsx',
@@ -470,15 +470,41 @@ class IAM_Techno_Optimisation :
         # Select only the required years (each decade)
         Prod = Prod[['2020', '2030', '2040', '2050']]
 
-        # 2. Prod estimates based on IEA data and byproduct calcuations
+        # 2. Mining production estimates based on IEA data
 
         # Production data from IEA estimates and byproduct calculations [t/yr]
-        Prod_litt = pd.read_excel(self.folder_path + 'Prod&Demand_Other_Sectors.xlsx', sheet_name='Prod_IEA_&_By_product', index_col=0)
+        Prod_litt = pd.read_excel(self.folder_path + 'Prod&Demand_Other_Sectors.xlsx', sheet_name='Prod_IEA', index_col=0)
         for m in Prod_litt.index:
             for d in self.listDecades:
                 Prod[d].loc[m] = Prod_litt[d].loc[m]
 
+        # 3. By-product estimates based on mining host flows
+
+        # Mining flows, apply refining losses
+        Prod.loc['Tellurium'] = 0.05/100 * Prod.loc['Copper']* self.Recovery_Rates['RR_Reserve'].loc['Tellurium']
+        Prod.loc['Gallium'] = 50/1000000 * Prod.loc['Aluminum'] * (40/100) * self.Recovery_Rates['RR_Reserve'].loc['Gallium']
+
+        # Refined flows
+        Prod.loc['Germanium'] = 24.70 / 1000000 * Prod.loc['Zinc']
+        Prod.loc['Indium'] = 50 / 1000000 * Prod.loc['Zinc'] + 10 / 1000000 * Prod.loc['Copper']
+
+        # 4. Calculate losses during the refining process for the mining flows
+
+        byProducts = ["Gallium", "Germanium", "Indium", "Tellurium"]
+        list_Mining_Flows = [m for m in self.listMetals if m not in byProducts]
+
+        for m in list_Mining_Flows :
+            Prod.loc[m] = Prod.loc[m]*self.Recovery_Rates['RR_Prod'].loc[m]
+
+        # 5. By-product estimates based on refined host flows
+
+        # Mining flows, apply refining losses
+        Prod.loc['Cadmium'] = 0.03 / 100 * Prod.loc['Zinc'] * self.Recovery_Rates['RR_Reserve'].loc['Cadmium']
+        # Refined flows
+        Prod.loc['Selenium'] = 290 / 1000000 * Prod.loc['Copper']
+
         self.Prod = Prod
+
 
     def EV_Market_Share(self):
         '''

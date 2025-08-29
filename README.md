@@ -52,5 +52,13 @@ All the other methods do not require any parameters
 
 ### Vizualize results 
 
-In order to vizualize the results of the 110 IAM-SSP scenarios studied in the article, you can download the python code: IAM_Results_Optimisation_Streamlit.
-A Streamlit application is generated. The data required to vizualize these results are available on zenodo: 10.5281/zenodo.15319014. 
+In order to vizualize the results of the 110 IAM-SSP scenarios studied in the article, a Streamlit application has been coded.
+
+1. Download the python code: IAM_Results_Optimisation_Streamlit
+2. Download the Zenodo dataset from: 10.5281/zenodo.15319014
+3. Make sure you have Python and Streamlit installed (pip install streamlit)
+4. On your terminal, navigate to the folder with your .py script (cd path_to_your_app)
+5. On your terminal, run the app (streamlit run Show_all_results.py)
+6. In the app, insert the folder_path where you downloaded the data from zenodo
+7. In the app, choose the model and ssp you want to study
+8. Visualize the results!

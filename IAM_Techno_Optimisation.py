@@ -1048,15 +1048,15 @@ class IAM_Techno_Optimisation :
         for r in self.listRegions[:3]:  # Remaining hydro availability for ASIA, MAF and LAM
             self.model.Constraint_Hydro.add(
                 self.model.s[r, 'Hydro', '2050'] - self.model.s[r, 'Hydro', '2020'] <= self.Hydro_availability[r].loc[
-                    'Technical -Ecological']
+                    'Technical-Remaining']
             )
 
         # Remaining hydro availability for combined Europe and North-Central America
         self.model.Constraint_Hydro.add(
                 sum(self.model.s[r, 'Hydro', '2050'] - self.model.s[r, 'Hydro', '2020'] for r in self.listRegions[3:])
-                <= self.Hydro_availability['Europe'].loc['Technical -Ecological'] +
+                <= self.Hydro_availability['Europe'].loc['Technical-Remaining'] +
                 self.Hydro_availability['North America'].loc[
-                    'Technical -Ecological']
+                    'Technical-Remaining']
             )
 
     def CstrTechnoCoherence(self):
@@ -1296,9 +1296,41 @@ class IAM_Techno_Optimisation :
 
     def resOpti(self):
         '''
-        Results of the optimisation
+        Results of the optimisation with infeasibility check
         '''
-        opt.solve(self.model, tee=True)
+        from pyomo.opt import TerminationCondition
+        import os
+
+        results = opt.solve(self.model, tee=True)
+
+        print("Solver status:", results.solver.status)
+        print("Termination condition:", results.solver.termination_condition)
+
+        # Si le modèle est infaisable
+        if results.solver.termination_condition == TerminationCondition.infeasible:
+            print("Model is infeasible! Exporting LP for conflict analysis.")
+
+            # Dossier où enregistrer les fichiers
+            output_dir = self.result_path+'issue'
+            os.makedirs(output_dir, exist_ok=True)
+
+            # Fichier LP
+            lp_filename = os.path.join(output_dir, "problem.lp")
+            self.model.write(lp_filename)
+            print(f"LP file written at: {lp_filename}")
+
+            # Fichier IIS
+            iis_file = os.path.join(output_dir, "conflict.ilp")
+
+            # Optionnel : créer IIS via CPLEX API
+            try:
+                from cplex import Cplex
+                cpx = Cplex(lp_filename)
+                cpx.conflict.refine()
+                cpx.conflict.write(iis_file)
+                print(f"IIS written at: {iis_file}")
+            except ImportError:
+                print("CPLEX API not available. You can open the LP in CPLEX to analyze conflicts.")
 
     def Save_Opti_Characteristics(self):
         '''

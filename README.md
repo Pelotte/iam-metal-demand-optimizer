@@ -5,7 +5,7 @@ The python code "IAM_Techno_Optimisation.py" is a software tool designed, on one
 ### How to use the code ? 
 
 1. Clone the repository (or download it)
-2. Download the contents from the 'data' folder in the location of your "folder path" (see the parameters section)
+2. Download the contents from the 'Data' folder in the location of your "folder path" (see the parameters section)
 3. Download the data of the IAM you want to use in your "folder path" (see the parameters section)
 4. The code is ready to be used !
 
@@ -42,8 +42,15 @@ The software tool is structured as a class, divided into several methods. To ini
 - model_s0: [string] IAM that the user wishes to study
 - scenario: [string] SSP-RCP scenario combination that the user wants to study, in the format “SSPx-numRCP”
 - ModelisationType: [string] ; " Init " to study the metal demand of the initial energy mix ; " Opti " to perform an optimization of the initial energy mix and study the metal demand of the optimized mix
-- Alpha: [int] percentage value of the acceptable level of metal demand exceedance in the energy sector compared to OSD and
-- OTD for the annual metal production optimization constraint
+- Alpha: [int] percentage value of the percentage of refined capacity reserved for the transition sectors (storage, network, electric vehicles, power plant)
 - ResLimit: [string] limit to apply when optimizing cumulative metal demand, choosing between Reserves or Resources
 
-  All the other methods do not require any parameters.
+Only the other method Demand_Other_Sector requires a parameter.
+- Growth: [string] ; "GDP" to estimate that future demand from the rest of the economy follows GDP growth, main hypothesis of the article ; "Pop" to eestimate that future metal demand from the rest of the economy remains constant and follows population growth
+
+All the other methods do not require any parameters
+
+### Vizualize results 
+
+In order to vizualize the results of the 110 IAM-SSP scenarios studied in the article, you can download the python code: IAM_Results_Optimisation_Streamlit.
+A Streamlit application is generated. The data required to vizualize these results are available on zenodo: 10.5281/zenodo.15319014. 

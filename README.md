@@ -75,6 +75,7 @@ The results of the software tool are stored in a folder named “ModelisationTyp
 - “Power Capacity”: a folder containing installed capacities, with one Excel file per region, showing power in GW per energy source (rows) and per decade (columns).
 - "Vehicle”: a folder containing annual vehicles sold in millions, per specific vehicle type (rows) and per year (columns).
 - "SecondaryProdEV”: a folder containing the annual secondary flow of metals from the recycling of vehicles, by metal (rows) and per decade (columns).
+
 Additionally, in a folder named “Broader Economy”, the outputs include:
 - "FutureHistProd": an excel file with the annual refinery production capacity in tons by metal (rows) per decade (columns). 
 

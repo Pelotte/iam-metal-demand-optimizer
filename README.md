@@ -2,6 +2,10 @@
 
 The python code "IAM_Techno_Optimisation.py" is a software tool designed, on one hand, to quantify metal supply and demand by sector through 2050, based on energy projections from various IAMs and SSP-RCP scenarios. On the other hand, this code enables the optimization of the minimum variation in the IAM technological mix necessary to limit demand exceedance beyond metal supply constraints.
 
+### System requirements
+
+The analysis was conducted using Python (version 3.11.5), and the optimization was performed with Pyomo (version 6.6.2) using the CPLEX solver (version 12.10.0.0). It was tested on Windows 11. 
+
 ### How to use the code ? 
 
 1. Clone the repository (or download it)

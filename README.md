@@ -4,9 +4,16 @@ The python code "IAM_Techno_Optimisation.py" is a software tool designed, on one
 
 ### System requirements
 
-The analysis was conducted using Python (version 3.11.5), and the optimization was performed with Pyomo (version 6.6.2) using the CPLEX solver (version 12.10.0.0). It was tested on Windows 11. 
+- **Programming language**: Python 3.11.5  
+- **Packages / dependencies**:  
+  - Pyomo 6.6.2  
+  - CPLEX 12.10.0.0 (solver required, must be installed separately)  
+  - numpy  
+  - pandas
+- **Operating system tested**: Windows 11  
+- **Non-standard hardware**: none (standard desktop computer sufficient)
 
-### How to use the code ? 
+### Installation guidelines
 
 1. Clone the repository (or download it)
 2. Download the contents from the 'Data' folder in the location of your "folder path" (see the parameters section)

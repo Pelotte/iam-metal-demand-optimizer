@@ -2,7 +2,7 @@
 
 The python code "IAM_Techno_Optimisation.py" is a software tool designed, on one hand, to quantify metal supply and demand by sector through 2050, based on energy projections from various IAMs and SSP-RCP scenarios. On the other hand, this code enables the optimization of the minimum variation in the IAM technological mix necessary to limit demand exceedance beyond metal supply constraints.
 
-### System requirements
+### 1. System requirements
 
 - **Programming language**: Python 3.11.5  
 - **Packages / dependencies**:  
@@ -13,19 +13,21 @@ The python code "IAM_Techno_Optimisation.py" is a software tool designed, on one
 - **Operating system tested**: Windows 11  
 - **Non-standard hardware**: none (standard desktop computer sufficient)
 
-### Installation guidelines
+### 2. Installation guidelines
 
 1. Clone the repository (or download it)
 2. Download the contents from the 'Data' folder in the location of your "folder path" (see the parameters section)
 3. Download the data of the IAM you want to use in your "folder path" (see the parameters section)
 4. The code is ready to be used !
 
-### How to download data of the IAM you want
+(Typicaclly, the installation should only take a few seconds)
+
+#### How to download data of the IAM you want
 
 1. You want to study the modelisation from the article
    
 The data needed to generate the results of RCP 2.6, for various SSP, modeled by each IAM markor is available on Zenodo at the following link: 
-        — Data: 10.5281/zenodo.15319014
+        — Data: [10.5281/zenodo.15319014](https://doi.org/10.5281/zenodo.15319014)
 
 2. You want to study an other IAM or SSP-RCP scenario
 
@@ -45,7 +47,11 @@ The folder and files name are:
 
 To do so, you can use the python code "IAM_Download_Data.py"
 
-### Choose parameters 
+### 3. Demonstration
+
+To run the initial and optimized scenario of a specific IAM and SSP-RCP scenario will usually take a few minutes. 
+
+#### Choose parameters
 
 The software tool is structured as a class, divided into several methods. To initialize the class, the user must provide seven parameters to the __init__ constructor:
 - folder_path: [string] path on the user's computer to the external data used in the code (finishing with /)
@@ -60,6 +66,19 @@ Only the other method Demand_Other_Sector requires a parameter.
 - Growth: [string] ; "GDP" to estimate that future demand from the rest of the economy follows GDP growth, main hypothesis of the article ; "Pop" to eestimate that future metal demand from the rest of the economy remains constant and follows population growth
 
 All the other methods do not require any parameters
+
+#### Expected output
+
+The results of the software tool are stored in a folder named “ModelisationType”, in the "result_path" chosen by the user, structured as follows:
+- “Metal Demand ByYear”: a folder containing one Excel file per metal, with annual demand in tonnes divided by sector (rows) and by decades (columns).
+- “Metal Demand Cumulated”: a folder containing one Excel file with cumulative demand in tonnes per metal (rows) and per sector (columns).
+- “Power Capacity”: a folder containing installed capacities, with one Excel file per region, showing power in GW per energy source (rows) and per decade (columns).
+- "Vehicle”: a folder containing annual vehicles sold in millions, per specific vehicle type (rows) and per year (columns).
+- "SecondaryProdEV”: a folder containing the annual secondary flow of metals from the recycling of vehicles, by metal (rows) and per decade (columns).
+Additionally, in a folder named “Broader Economy”, the outputs include:
+- "FutureHistProd": an excel file with the annual refinery production capacity in tons by metal (rows) per decade (columns). 
+
+
 
 ### Vizualize results 
 

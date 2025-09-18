@@ -81,6 +81,6 @@ Additionally, in a folder named “Broader Economy”, the outputs include:
 
 
 
-### Vizualize results 
+### 4. Vizualize results 
 
 The results can be vizualized on the Streamlit application at: [IAM Metal Bottlenecks App](https://iam-metal-bottlenecks.streamlit.app/)
